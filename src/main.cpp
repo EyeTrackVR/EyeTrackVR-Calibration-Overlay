@@ -30,9 +30,25 @@ namespace fs = std::filesystem;
 
 static constexpr uint16_t PORT_CLASSIC = 2112;
 
-// Shift the entire calibration scene downward so it aligns with typical
-// straight-ahead gaze rather than the HMD's optical centre.
-static constexpr float Y_BIAS = -0.10f;
+// Vertical offset (metres, HMD space) from the tracking origin to the display's
+// optical axis.  Derived from GetProjectionRaw; -0.10 is only a fallback.
+static float Y_BIAS = -0.10f;
+
+// Distance from the HMD to the overlay plane.  Increasing this reduces eye
+// convergence (more relaxed gaze).  All positions and dot sizes are expressed
+// in metres at this distance so they must scale with it to keep the same FOV.
+static constexpr float OVERLAY_Z    = -3.0f;   // overlay plane (m, negative = in front)
+static constexpr float OVERLAY_DIST =  3.0f;   // |OVERLAY_Z|
+
+// Fraction of the half-FOV the spiral/ellipse reaches.  1.0 = full display
+// edge; 0.80 = 80% — leaves a small margin and avoids lens distortion edges.
+static constexpr float FOV_COVERAGE = 0.63f;
+
+// Spiral ellipse radii in metres at OVERLAY_DIST.  Computed at runtime from
+// GetProjectionRaw so they match the HMD's actual horizontal and vertical FOV.
+// Fallback values are sized for a typical 90° symmetric headset at 3 m.
+static float SPIRAL_RX = 2.10f;
+static float SPIRAL_RY = 2.10f;
 
 // Express targets: normalised [-1,1] position scaled by OVERLAY_SCALE to metres.
 static constexpr float OVERLAY_SCALE = 0.82f;
@@ -130,7 +146,7 @@ static void update_text(VROverlayHandle_t handle, const std::wstring& text) {
 
 // ── OpenVR overlay helpers ────────────────────────────────────────────────────
 
-static void set_overlay_transform(VROverlayHandle_t h, float x, float y, float z = -2.0f) {
+static void set_overlay_transform(VROverlayHandle_t h, float x, float y, float z = OVERLAY_Z) {
     vr::HmdMatrix34_t m = {
         1.0f, 0.0f, 0.0f, x,
         0.0f, 1.0f, 0.0f, y,
@@ -150,6 +166,46 @@ static void animate_shrink(VROverlayHandle_t h, float x, float y,
         set_overlay_transform(h, x, y);
         std::this_thread::sleep_for(std::chrono::milliseconds(step_ms));
     }
+}
+
+// Derive Y_BIAS, SPIRAL_RX, and SPIRAL_RY from the HMD's actual projection
+// frustum.  Must be called after VR_Init succeeds.
+//
+// GetProjectionRaw (Y-up: pfTop > 0, pfBottom < 0):
+//   y_ctr  = (pfTop+pfBottom)/2  — optical-axis vertical offset from tracking fwd
+//   x_half = (pfRight-pfLeft)/2  — horizontal half-FOV tangent from optical axis
+//   y_half = (pfTop-pfBottom)/2  — vertical   half-FOV tangent from optical axis
+//
+// Multiplying the half-tangents by OVERLAY_DIST gives the physical extent at the
+// overlay plane; FOV_COVERAGE scales them back from the display edge.
+static void init_y_bias(float overlay_z = OVERLAY_Z) {
+    float l, r, t, b;
+
+    VRSystem()->GetProjectionRaw(vr::Eye_Left,  &l, &r, &t, &b);
+    float lx_half = (r - l) * 0.5f;
+    float ly_half = (t - b) * 0.5f;
+    float ly_ctr  = (t + b) * 0.5f;
+
+    VRSystem()->GetProjectionRaw(vr::Eye_Right, &l, &r, &t, &b);
+    float rx_half = (r - l) * 0.5f;
+    float ry_half = (t - b) * 0.5f;
+    float ry_ctr  = (t + b) * 0.5f;
+
+    const float x_half = (lx_half + rx_half) * 0.5f;
+    const float y_half = (ly_half + ry_half) * 0.5f;
+    const float y_ctr  = (ly_ctr  + ry_ctr)  * 0.5f;
+    const float dist   = std::fabs(overlay_z);
+
+    Y_BIAS    = y_ctr  * dist;
+    SPIRAL_RX = x_half * dist * FOV_COVERAGE;
+    SPIRAL_RY = y_half * dist * FOV_COVERAGE;
+
+    std::cout << "[INFO] Y_BIAS="    << Y_BIAS
+              << " m  SPIRAL_RX="   << SPIRAL_RX
+              << " m  SPIRAL_RY="   << SPIRAL_RY
+              << " m  (x_half_tan=" << x_half
+              << "  y_half_tan="    << y_half
+              << "  FOV_COVERAGE="  << FOV_COVERAGE << ")\n";
 }
 
 // ── UDP send helpers ──────────────────────────────────────────────────────────
@@ -182,46 +238,55 @@ static void send_int32(SOCKET sock, const sockaddr_in& addr, int32_t v) {
 //     104   → raise eyebrows halfway  (signals 0–8 + 19 on port 2112)
 //     105   → lower eyebrows fully    (signals 0–8 + 19 on port 2112)
 //     106   → lower eyebrows halfway  (signals 0–8 + 19 on port 2112)
+//     110   → random gaze pass (plain)   — then send 111 per position, 119 to end
+//     112   → random gaze pass (squint)  — then send 111 per position, 119 to end
+//     111 + float32_x + float32_y  → show dot at (x,y) normalized -1..1; signals 20 when ready
+//     119   → end random pass (overlay signals 19 then exits sub-loop)
+//     120   → headset-shift pass: show small center dot + text; Python drives timing
+//     121   → end headset-shift pass: hide dot, signal 19
 //     200   → exit
 //   Signals sent on 2112:
 //     255   → overlay ready (sent once at startup)
-//     0–8   → capture-ready at point N (during any pass)
-//     19    → current pass complete
+//     0–8   → capture-ready at fixed point N (during 100–106 passes)
+//     10    → fixed phase done, entering jittered-grid phase (Python now sends 111 positions)
+//     19    → current pass fully complete (after jittered phase ends)
+//     20    → capture-ready at jittered position (111 sub-commands, cmds 100–112)
 
 static constexpr uint16_t PORT_INTERACTIVE_CMD = 2113;
 
-// Capture-phase grid: 4 cardinal extremes + 4 diagonal corners + center
+// Capture-phase grid: clockwise outer ring then center — minimises eye travel.
+// Positions at OVERLAY_DIST (3 m); cardinals ±1.65 m, corners ±1.275 m.
 static const float DC_POS[9][2] = {
-    { 0.0f,   0.0f},   // 0  center
-    {-1.1f,   0.0f},   // 1  left
-    { 1.1f,   0.0f},   // 2  right
-    { 0.0f,   1.1f},   // 3  up
-    { 0.0f,  -1.1f},   // 4  down
-    {-0.85f,  0.85f},  // 5  upper-left
-    { 0.85f,  0.85f},  // 6  upper-right
-    {-0.85f, -0.85f},  // 7  lower-left
-    { 0.85f, -0.85f},  // 8  lower-right
+    {-1.275f,  1.275f},  // 0  upper-left
+    { 0.0f,    1.65f},   // 1  up
+    { 1.275f,  1.275f},  // 2  upper-right
+    { 1.65f,   0.0f},    // 3  right
+    { 1.275f, -1.275f},  // 4  lower-right
+    { 0.0f,   -1.65f},   // 5  down
+    {-1.275f, -1.275f},  // 6  lower-left
+    {-1.65f,   0.0f},    // 7  left
+    { 0.0f,    0.0f},    // 8  center
 };
 
 // Expression-guidance grid (includes diagonals for top-left / bottom-right etc.)
-static constexpr float EXPR_DOT_SIZE = 0.10f;
+static constexpr float EXPR_DOT_SIZE = 0.15f;
 static const float EXPR_POS[9][2] = {
-    { 0.0f,  0.0f},   // 0  center
-    {-0.9f,  0.0f},   // 1  left
-    { 0.9f,  0.0f},   // 2  right
-    { 0.0f,  0.9f},   // 3  up
-    { 0.0f, -0.9f},   // 4  down
-    { 0.9f,  0.9f},   // 5  upper-right
-    {-0.9f,  0.9f},   // 6  upper-left
-    { 0.9f, -0.9f},   // 7  lower-right
-    {-0.9f, -0.9f},   // 8  lower-left
+    { 0.0f,   0.0f},   // 0  center
+    {-1.35f,  0.0f},   // 1  left
+    { 1.35f,  0.0f},   // 2  right
+    { 0.0f,   1.35f},  // 3  up
+    { 0.0f,  -1.35f},  // 4  down
+    { 1.35f,  1.35f},  // 5  upper-right
+    {-1.35f,  1.35f},  // 6  upper-left
+    { 1.35f, -1.35f},  // 7  lower-right
+    {-1.35f, -1.35f},  // 8  lower-left
 };
 
 static constexpr int   DC_TARGETS     = 9;
-static constexpr float DC_DOT_LARGE   = 0.42f;
-static constexpr float DC_DOT_SMALL   = 0.05f;
-// 0.37 m over 100 x 5 ms = 0.5 s shrink; total per dot ~1.15 s
-static constexpr float DC_SHRINK_STEP = 0.0037f;
+static constexpr float DC_DOT_LARGE   = 0.63f;
+static constexpr float DC_DOT_SMALL   = 0.075f;
+// 0.555 m over 100 x 5 ms = 0.5 s shrink; total per dot ~1.15 s
+static constexpr float DC_SHRINK_STEP = 0.00555f;
 static constexpr int   DC_SHRINK_MS   = 5;
 static constexpr int   DC_APPEAR_MS   = 150;
 static constexpr int   DC_HOLD_MS     = 500;
@@ -242,6 +307,59 @@ static void run_dc_phase(VROverlayHandle_t dot_h, SOCKET sock,
 
         send_int32(sock, addr, base_idx + i);
         std::this_thread::sleep_for(std::chrono::milliseconds(DC_HOLD_MS));
+    }
+}
+
+// Drives a random-position gaze pass.  Python sends cmd 111+float_x+float_y for
+// each position; we place the dot, shrink-animate, then signal 20 (capture ready).
+// Returns true to keep running, false if cmd 200 (exit) was received.
+static bool run_random_gaze_pass(VROverlayHandle_t dot_h,
+                                  SOCKET send_sock, const sockaddr_in& send_addr,
+                                  SOCKET recv_sock) {
+    static constexpr float SCALE = 1.1f;  // maps normalized ±1 → ±1.1 m at z=-2 m
+
+    // Signal Python that the fixed phase is done and we are ready to receive positions
+    send_int32(send_sock, send_addr, 10);
+
+    while (true) {
+        char buf[512];
+        int len = recvfrom(recv_sock, buf, (int)sizeof(buf) - 1, 0, nullptr, nullptr);
+        if (len == SOCKET_ERROR) {
+            int err = WSAGetLastError();
+            if (err == WSAETIMEDOUT || err == WSAEWOULDBLOCK) continue;
+            return true;
+        }
+        if (len < 4) continue;
+
+        int32_t subcmd = ntohl(*reinterpret_cast<const int32_t*>(buf));
+
+        if (subcmd == 111 && len >= 12) {
+            uint32_t xi, yi;
+            memcpy(&xi, buf + 4, 4); xi = ntohl(xi);
+            memcpy(&yi, buf + 8, 4); yi = ntohl(yi);
+            float nx, ny;
+            memcpy(&nx, &xi, 4);
+            memcpy(&ny, &yi, 4);
+
+            nx = std::max(-1.0f, std::min(1.0f, nx));
+            ny = std::max(-1.0f, std::min(1.0f, ny));
+            float px = nx * SCALE;
+            float py = ny * SCALE + Y_BIAS;
+
+            VROverlay()->SetOverlayWidthInMeters(dot_h, DC_DOT_LARGE);
+            set_overlay_transform(dot_h, px, py);
+            std::this_thread::sleep_for(std::chrono::milliseconds(DC_APPEAR_MS));
+            animate_shrink(dot_h, px, py, DC_DOT_LARGE, DC_DOT_SMALL,
+                           DC_SHRINK_STEP, DC_SHRINK_MS);
+            send_int32(send_sock, send_addr, 20);
+            std::this_thread::sleep_for(std::chrono::milliseconds(DC_HOLD_MS));
+
+        } else if (subcmd == 119) {
+            send_int32(send_sock, send_addr, 19);
+            return true;
+        } else if (subcmd == 200) {
+            return false;
+        }
     }
 }
 
@@ -368,10 +486,37 @@ static int run_interactive(VROverlayHandle_t dot_h, VROverlayHandle_t text_h,
             std::this_thread::sleep_for(std::chrono::milliseconds(400));
             VROverlay()->ShowOverlay(dot_h);
             run_dc_phase(dot_h, send_sock, send_addr, 0);
-            send_int32(send_sock, send_addr, 19);
+            // Fixed phase done — enter jittered-grid phase; run_random_gaze_pass
+            // sends signal 10 (phase ready), then 19 when Python sends 119.
+            bool cont = run_random_gaze_pass(dot_h, send_sock, send_addr, recv_sock);
             VROverlay()->HideOverlay(dot_h);
             if (text_h != vr::k_ulOverlayHandleInvalid) VROverlay()->HideOverlay(text_h);
             cur_text.clear();
+            if (!cont) running = false;
+        } else if (cmd == 110 || cmd == 112) {
+            const wchar_t* t = (cmd == 112)
+                ? L"Squint\nlook at each dot as it appears"
+                : L"Look at each dot\nas it appears";
+            if (text_h != vr::k_ulOverlayHandleInvalid) VROverlay()->ShowOverlay(text_h);
+            show_text(t);
+            std::this_thread::sleep_for(std::chrono::milliseconds(400));
+            VROverlay()->ShowOverlay(dot_h);
+            bool cont = run_random_gaze_pass(dot_h, send_sock, send_addr, recv_sock);
+            VROverlay()->HideOverlay(dot_h);
+            if (text_h != vr::k_ulOverlayHandleInvalid) VROverlay()->HideOverlay(text_h);
+            cur_text.clear();
+            if (!cont) running = false;
+        } else if (cmd == 120) {
+            if (text_h != vr::k_ulOverlayHandleInvalid) VROverlay()->ShowOverlay(text_h);
+            show_text(L"Look at center\nshift your headset around");
+            VROverlay()->SetOverlayWidthInMeters(dot_h, DC_DOT_SMALL);
+            set_overlay_transform(dot_h, 0.0f, Y_BIAS);
+            VROverlay()->ShowOverlay(dot_h);
+        } else if (cmd == 121) {
+            VROverlay()->HideOverlay(dot_h);
+            if (text_h != vr::k_ulOverlayHandleInvalid) VROverlay()->HideOverlay(text_h);
+            cur_text.clear();
+            send_int32(send_sock, send_addr, 19);
         } else if (cmd == 200) {
             running = false;
         }
@@ -385,19 +530,19 @@ static int run_interactive(VROverlayHandle_t dot_h, VROverlayHandle_t text_h,
 
 static int run_classic(VROverlayHandle_t dot_h, SOCKET sock,
                         const sockaddr_in& addr, bool center_only) {
-    float size  = center_only ? 2.5f : 1.0f;
-    float pos_x = center_only ? 0.0f : 0.8f;
-    float pos_y = center_only ? 0.0f : 0.8f;
+    float size  = center_only ? 3.75f : 1.5f;
+    float pos_x = center_only ? 0.0f  : 1.2f;
+    float pos_y = center_only ? 0.0f  : 1.2f;
     int   state = 0;
 
     std::cout << "[INFO] Classic calibration ("
               << (center_only ? "center" : "9-point") << ")\n";
 
     while (state < 9) {
-        while (size > 0.03f) {
-            size -= 0.01f;
+        while (size > 0.045f) {
+            size -= 0.015f;
             VROverlay()->SetOverlayWidthInMeters(dot_h, size);
-            set_overlay_transform(dot_h, pos_x, pos_y);
+            set_overlay_transform(dot_h, pos_x, pos_y + Y_BIAS);
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         if (center_only) {
@@ -409,20 +554,20 @@ static int run_classic(VROverlayHandle_t dot_h, SOCKET sock,
         send_int32(sock, addr, state);
         ++state;
 
-        if (pos_x <= 0.9f && pos_x >= 0.0f) {
-            pos_x -= 0.8f;
+        if (pos_x <= 1.35f && pos_x >= 0.0f) {
+            pos_x -= 1.2f;
             if (std::fabs(pos_x) < 1.3e-7f) pos_x = 0.0f;
         } else {
-            pos_x = 0.8f;
+            pos_x = 1.2f;
         }
         if (state % 3 == 0) {
-            if (pos_y <= 0.9f && pos_y >= 0.0f) {
-                pos_y -= 0.8f;
+            if (pos_y <= 1.35f && pos_y >= 0.0f) {
+                pos_y -= 1.2f;
                 if (std::fabs(pos_y) < 1.3e-7f) pos_y = 0.0f;
             }
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        size = 1.0f;
+        size = 1.5f;
     }
     send_int32(sock, addr, 9);
     std::cout << "[INFO] Classic cal done\n";
@@ -445,19 +590,21 @@ static int run_classic(VROverlayHandle_t dot_h, SOCKET sock,
 
 static int run_ellipse(VROverlayHandle_t dot_h, VROverlayHandle_t text_h,
                         SOCKET sock, const sockaddr_in& addr) {
-    static constexpr int    FPS         = 60;
-    static constexpr double SPIRAL_S    = 13.0;   // spiral duration (seconds)
-    static constexpr double SPIRAL_ROTS = 4.0;    // full rotations while spiraling in
-    static constexpr float  SPIRAL_RX   = 1.40f;  // horizontal starting radius (m) at z = -2 m
-    static constexpr float  SPIRAL_RY   = 1.20f;  // vertical starting radius (m) at z = -2 m
-    static constexpr float  DOT_LARGE   = 0.12f;  // dot size at outer edge (m)
-    static constexpr float  DOT_SMALL   = 0.04f;  // dot size at center (m)
-    static constexpr int    CENTER_MS   = 1500;   // hold at center after spiral
+    static constexpr int    FPS          = 60;
+    // Phase 1 — full-radius orbit: 1 lap at max FOV to prime the outer edge.
+    static constexpr double ORBIT_ROTS   = 1.0;    // laps at full radius
+    static constexpr double ORBIT_S      = 9.0;    // duration (9 s/rotation)
+    // Phase 2 — spiral inward: continues where the orbit ended.
+    static constexpr double SPIRAL_ROTS  = 3.0;    // rotations while shrinking
+    static constexpr double SPIRAL_S     = 30.0;   // duration (10 s/rotation, slow shrink)
+    // SPIRAL_RX / SPIRAL_RY come from the global computed by init_y_bias()
+    // so they match the HMD's actual H/V FOV at OVERLAY_DIST.
+    static constexpr float  DOT_LARGE    = 0.18f;  // dot size at outer edge (m)
+    static constexpr float  DOT_SMALL    = 0.06f;  // dot size at center (m)
+    static constexpr int    CENTER_MS    = 1500;   // hold at center after spiral
 
     const auto frame_us = std::chrono::microseconds(1000000 / FPS);
 
-    // Only call update_text when the string actually changes — prevents per-frame
-    // GDI re-renders which cause visible flickering on the text overlay.
     std::wstring cur_text;
     auto show_text = [&](const std::wstring& t) {
         if (t != cur_text && text_h != vr::k_ulOverlayHandleInvalid) {
@@ -466,14 +613,13 @@ static int run_ellipse(VROverlayHandle_t dot_h, VROverlayHandle_t text_h,
         }
     };
 
-    std::cout << "[INFO] Ellipse calibration — spiral in ("
-              << SPIRAL_S << "s, " << SPIRAL_ROTS << " rotations, RX=" << SPIRAL_RX
-              << "m RY=" << SPIRAL_RY << "m)\n";
+    std::cout << "[INFO] Ellipse calibration — orbit " << ORBIT_ROTS << " lap ("
+              << ORBIT_S << "s) then spiral " << SPIRAL_ROTS << " rotations ("
+              << SPIRAL_S << "s)  RX=" << SPIRAL_RX << "m RY=" << SPIRAL_RY << "m\n";
 
-    // Appear at start position (outer right) before sampling begins.
-    // Y_BIAS shifts the whole scene down to match natural straight-ahead gaze.
+    // Appear at left side (angle = PI) before sampling begins.
     VROverlay()->SetOverlayWidthInMeters(dot_h, DOT_LARGE);
-    set_overlay_transform(dot_h, SPIRAL_RX, Y_BIAS);
+    set_overlay_transform(dot_h, -SPIRAL_RX, Y_BIAS);
     show_text(L"Follow the dot -- keep your gaze on it");
     std::this_thread::sleep_for(std::chrono::milliseconds(1200));
 
@@ -481,20 +627,38 @@ static int run_ellipse(VROverlayHandle_t dot_h, VROverlayHandle_t text_h,
     send_int32(sock, addr, 0);
     Beep(880, 100);
 
-    // ── Spiral inward ─────────────────────────────────────────────────────────
+    // ── Phase 1: orbit at full radius ─────────────────────────────────────────
     auto t0 = std::chrono::steady_clock::now();
+    while (true) {
+        auto   now = std::chrono::steady_clock::now();
+        double t   = std::chrono::duration<double>(now - t0).count();
+        if (t >= ORBIT_S) break;
+
+        double angle = M_PI + 2.0 * M_PI * ORBIT_ROTS * (t / ORBIT_S);
+        float nx = SPIRAL_RX * (float)std::cos(angle);
+        float ny = SPIRAL_RY * (float)std::sin(angle) + Y_BIAS;
+
+        VROverlay()->SetOverlayWidthInMeters(dot_h, DOT_LARGE);
+        set_overlay_transform(dot_h, nx, ny);
+        std::this_thread::sleep_for(frame_us);
+    }
+
+    // ── Phase 2: spiral inward ────────────────────────────────────────────────
+    // Angle continues seamlessly from where the orbit ended.
+    auto t1 = std::chrono::steady_clock::now();
     int last_secs = -1;
     while (true) {
         auto   now  = std::chrono::steady_clock::now();
-        double t    = std::chrono::duration<double>(now - t0).count();
+        double t    = std::chrono::duration<double>(now - t1).count();
         if (t >= SPIRAL_S) break;
 
-        double frac  = t / SPIRAL_S;
+        double frac   = t / SPIRAL_S;
         double shrink = 1.0 - frac;
-        double angle = 2.0 * M_PI * SPIRAL_ROTS * frac;
+        double angle  = M_PI + 2.0 * M_PI * ORBIT_ROTS
+                             + 2.0 * M_PI * SPIRAL_ROTS * frac;
 
-        float nx = SPIRAL_RX * (float)(shrink * std::cos(angle));
-        float ny = SPIRAL_RY * (float)(shrink * std::sin(angle)) + Y_BIAS;
+        float nx     = SPIRAL_RX * (float)(shrink * std::cos(angle));
+        float ny     = SPIRAL_RY * (float)(shrink * std::sin(angle)) + Y_BIAS;
         float dot_sz = DOT_LARGE + (DOT_SMALL - DOT_LARGE) * (float)frac;
 
         VROverlay()->SetOverlayWidthInMeters(dot_h, dot_sz);
@@ -586,6 +750,7 @@ int main(int argc, char** argv) {
         closesocket(sock); WSACleanup();
         return 1;
     }
+    init_y_bias();
 
     // Dot overlay
     VROverlayHandle_t dot_h = vr::k_ulOverlayHandleInvalid;
@@ -595,7 +760,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     VROverlay()->SetOverlayFromFile(dot_h, imgPath.string().c_str());
-    VROverlay()->SetOverlayWidthInMeters(dot_h, 2.0f);
+    VROverlay()->SetOverlayWidthInMeters(dot_h, 3.0f);
     set_overlay_transform(dot_h, 0.0f, 0.0f);
     VROverlay()->ShowOverlay(dot_h);
 
@@ -606,8 +771,8 @@ int main(int argc, char** argv) {
                 != vr::VROverlayError_None) {
             std::cout << "[WARN] Could not create text overlay — continuing without it\n";
         } else {
-            VROverlay()->SetOverlayWidthInMeters(text_h, 1.5f);
-            set_overlay_transform(text_h, 0.0f, -0.55f + Y_BIAS);
+            VROverlay()->SetOverlayWidthInMeters(text_h, 2.25f);
+            set_overlay_transform(text_h, 0.0f, -0.825f + Y_BIAS);
             update_text(text_h, ellipse_mode ? L"Preparing calibration..." : L"Preparing...");
             VROverlay()->SetOverlaySortOrder(text_h, 0);
             VROverlay()->ShowOverlay(text_h);
