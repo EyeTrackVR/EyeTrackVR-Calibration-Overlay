@@ -126,6 +126,7 @@ int main(int argc, char** argv) {
         else if (arg == "9point")       mode_name = "9point";
         else if (arg == "ellipse")      mode_name = "ellipse";
         else if (arg == "datacollect")  mode_name = "datacollect";
+        else if (arg == "finetune")     mode_name = "finetune";
         else if (arg == "interactive")  mode_name = "interactive";
         else if (arg.rfind("--runtime=", 0) == 0) runtime_arg = arg.substr(10);
         else if (arg.rfind("--coverage=", 0) == 0) {

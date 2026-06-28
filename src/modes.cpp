@@ -33,6 +33,18 @@ const float GRID[9][2] = {
 };
 const float CENTER_PT[1][2] = {{0.0f, 0.0f}};
 
+// Fine-tune grid: 5 points evenly spaced around a circle at 85% of the gaze
+// range (starting at top, clockwise), then the centre last. Normalised gaze
+// coordinates (±1 = edge of the gaze range).
+const float FINETUNE_POS[6][2] = {
+    { 0.0000f,  0.8500f},   // 0  top
+    { 0.8084f,  0.2627f},   // 1  upper-right
+    { 0.4996f, -0.6877f},   // 2  lower-right
+    {-0.4996f, -0.6877f},   // 3  lower-left
+    {-0.8084f,  0.2627f},   // 4  upper-left
+    { 0.0000f,  0.0000f},   // 5  centre (last)
+};
+
 uint32_t be32(const unsigned char* p) {
     return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
            ((uint32_t)p[2] << 8)  |  (uint32_t)p[3];
@@ -259,6 +271,43 @@ private:
     PointSequence seq_;
 };
 
+// ── finetune (5 points around a circle, then centre) ─────────────────────────
+class FineTuneMode : public IMode {
+    enum Phase { INTRO, RUN, COMPLETE, DONE };
+public:
+    Scene update(double dt, UdpNet& net, const GazeRange& g) override {
+        Scene s;
+        s.text_visible = true;
+        t_ += dt;
+        switch (phase_) {
+        case INTRO:
+            s.text = "Follow the purple dot";
+            if (t_ >= 1.0) { seq_.start(FINETUNE_POS, 6, 0); phase_ = RUN; t_ = 0; }
+            break;
+        case RUN:
+            s.text = "Follow the purple dot";
+            seq_.update(dt, net, g, s);   // signals point index 0..5 as each is captured
+            if (seq_.done) { net.send_int32(9); phase_ = COMPLETE; t_ = 0; }
+            break;
+        case COMPLETE:
+            s.text = "Fine-tune complete!";
+            if (t_ >= 1.2) phase_ = DONE;
+            break;
+        case DONE:
+            finished_ = true;
+            break;
+        }
+        return s;
+    }
+    bool finished() const override { return finished_; }
+
+private:
+    Phase  phase_ = INTRO;
+    double t_ = 0;
+    bool   finished_ = false;
+    PointSequence seq_;
+};
+
 // ── interactive (driven by the EyeTrackVR Python app over UDP) ────────────────
 class InteractiveMode : public IMode {
     enum State { IDLE, PASS_TEXT, PASS_DC, RANDOM_WAIT, RANDOM_ANIM, FINISHED };
@@ -407,6 +456,7 @@ std::unique_ptr<IMode> make_mode(const std::string& name) {
     if (name == "center")       return std::make_unique<ClassicMode>(true);
     if (name == "ellipse")      return std::make_unique<EllipseMode>();
     if (name == "datacollect")  return std::make_unique<DataCollectMode>();
+    if (name == "finetune")     return std::make_unique<FineTuneMode>();
     if (name == "interactive")  return std::make_unique<InteractiveMode>();
     return std::make_unique<ClassicMode>(false);   // "9point" default
 }
