@@ -1,0 +1,11 @@
+{
+  "name": "eyetrackvr-overlay",
+  "version-string": "0.2.0",
+  "description": "Cross-platform OpenXR/Vulkan eye-tracking calibration overlay",
+  "dependencies": [
+    "openxr-loader",
+    "vulkan-headers",
+    "vulkan-loader",
+    "stb"
+  ]
+}

@@ -1,6 +1,9 @@
 # Build directories
 build/
 build-*/
+
+# vcpkg manifest-mode install tree
+vcpkg_installed/
 [Bb]in/
 [Oo]bj/
 [Oo]ut/

@@ -1,49 +1,47 @@
-cmake_minimum_required(VERSION 3.15)
-project(EyeTrackVR-Overlay LANGUAGES CXX) # Always specify LANGUAGES for clarity and specific CXX features
+cmake_minimum_required(VERSION 3.21)
+project(EyeTrackVR-Overlay LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF) # Good practice to disable GNU extensions unless specifically needed
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-# vcpkg toolchain
-# This line is usually passed on the CMake command line.
-# If you keep it here, it will override any command-line setting.
-# set(CMAKE_TOOLCHAIN_FILE "C:/Users/beaul/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
+# Dependencies (provided by vcpkg via the toolchain file; see README).
+#   cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake
+find_package(Vulkan REQUIRED)
+find_package(OpenXR CONFIG REQUIRED)
 
-# --- Removed manual include_directories and link_directories for vcpkg packages ---
-# find_package(cppzmq CONFIG REQUIRED) will handle these via imported targets.
+# stb is header-only; locate its include directory on the vcpkg prefix.
+find_path(STB_INCLUDE_DIR NAMES stb_image.h REQUIRED)
 
-# Set OpenVR manually (vendored library)
-set(OPENVR_INCLUDE_DIR "${PROJECT_SOURCE_DIR}/external/openvr/headers")
-set(OPENVR_LIBRARIES "${PROJECT_SOURCE_DIR}/external/openvr/lib/win64/openvr_api.lib")
-set(OPENVR_RUNTIME "${PROJECT_SOURCE_DIR}/external/openvr/bin/win64/openvr_api.dll")
-
-# Source files (using target_sources is often preferred over GLOB_RECURSE for larger projects)
-file(GLOB_RECURSE SOURCES
-    "${PROJECT_SOURCE_DIR}/src/*.h"
-    "${PROJECT_SOURCE_DIR}/src/*.cpp"
-)
+file(GLOB SOURCES "${PROJECT_SOURCE_DIR}/src/*.cpp" "${PROJECT_SOURCE_DIR}/src/*.h")
 
 add_executable(EyeTrackVR-Overlay ${SOURCES})
 
-# Target-specific include directories (more precise than global include_directories)
 target_include_directories(EyeTrackVR-Overlay PRIVATE
-    ${PROJECT_SOURCE_DIR}/src # For your project's headers
-    ${OPENVR_INCLUDE_DIR}     # For OpenVR headers
+    ${PROJECT_SOURCE_DIR}/src
+    ${STB_INCLUDE_DIR}
 )
 
 target_link_libraries(EyeTrackVR-Overlay PRIVATE
-    ${OPENVR_LIBRARIES} # Link the OpenVR static library
-    ws2_32              # Windows sockets for UDP communication
+    OpenXR::openxr_loader
+    Vulkan::Vulkan
 )
 
-# Post-build commands for copying runtime dependencies and assets
-add_custom_command(TARGET EyeTrackVR-Overlay POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${OPENVR_RUNTIME}" $<TARGET_FILE_DIR:EyeTrackVR-Overlay>
-)
+if(WIN32)
+    # net.cpp uses Winsock; OpenXR/Vulkan loaders ship as DLLs.
+    target_link_libraries(EyeTrackVR-Overlay PRIVATE ws2_32)
+    add_custom_command(TARGET EyeTrackVR-Overlay POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_RUNTIME_DLLS:EyeTrackVR-Overlay> $<TARGET_FILE_DIR:EyeTrackVR-Overlay>
+        COMMAND_EXPAND_LISTS
+    )
+endif()
 
+# Assets next to the binary: the dot image and the bundled font.
 add_custom_command(TARGET EyeTrackVR-Overlay POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${PROJECT_SOURCE_DIR}/src/assets" $<TARGET_FILE_DIR:EyeTrackVR-Overlay>/assets
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${PROJECT_SOURCE_DIR}/external/font/OpenSans-Regular.ttf"
+        $<TARGET_FILE_DIR:EyeTrackVR-Overlay>/assets/OpenSans-Regular.ttf
 )
