@@ -1,4 +1,5 @@
 #pragma once
+#include "backend.h"
 #include "xr_vk.h"
 #include "vk_base.h"
 #include "fov.h"
@@ -8,37 +9,27 @@
 #include <string>
 #include <vector>
 
-// What a calibration mode wants drawn this frame. Positions are in metres on the
-// overlay plane (VIEW-space x/y at z = -OVERLAY_DIST); dot_size is the quad width
-// in metres. Text content is diffed against the previous frame so the texture is
-// only re-rasterised when it changes.
-struct Scene {
-    bool        dot_visible  = false;
-    float       dot_x        = 0.0f;
-    float       dot_y        = 0.0f;
-    float       dot_size     = 0.1f;
-
-    bool        text_visible = false;
-    std::string text;
-};
-
 // Owns the OpenXR instance/session and the Vulkan device (created via
 // XR_KHR_vulkan_enable2). Drives the frame loop and composites the dot + text as
-// head-locked quad layers. Replaces all OpenVR overlay handling.
-class XrApp {
+// head-locked quad layers over an opaque grey background projection.
+//
+// NOTE: a focused OpenXR session becomes the runtime's scene application. On
+// SteamVR that evicts any running game, so the OpenVR overlay backend (OvrApp)
+// is preferred there; this backend is used for runtimes where that is fine.
+class XrApp : public IOverlayBackend {
 public:
-    bool init(const FovConfig& fov_cfg, const char* dot_png, const char* font_ttf);
-    void shutdown();
+    bool init(const FovConfig& fov_cfg, const char* dot_png, const char* font_ttf) override;
+    void shutdown() override;
 
     // Pump session lifecycle. Returns false when the app should exit.
-    bool poll_events();
+    bool poll_events() override;
     bool session_running() const { return session_running_; }
 
     // Render one frame. When the headset is visible/focused, update_cb(dt, gaze)
     // is called between begin/end to obtain the scene; dt is seconds since the
     // previous rendered frame. When not focused the callback is skipped (the
     // calibration pauses). Returns false if the loop should stop.
-    bool frame(const std::function<Scene(double dt, const GazeRange&)>& update_cb);
+    bool frame(const std::function<Scene(double dt, const GazeRange&)>& update_cb) override;
 
     const GazeRange& gaze() const { return gaze_; }
 

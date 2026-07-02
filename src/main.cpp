@@ -2,9 +2,12 @@
 #include "fov.h"
 #include "modes.h"
 #include "net.h"
+#include "backend.h"
+#include "ovr_app.h"
 #include "xr_app.h"
 
 #include <cstdlib>
+#include <memory>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -118,6 +121,7 @@ int main(int argc, char** argv) {
 
     std::string mode_name = "9point";
     std::string runtime_arg;        // "" = auto, "keep" = active runtime, else a json path
+    std::string backend_arg;        // "" = auto, "openvr" or "openxr" to force
     FovConfig fov;
 
     for (int i = 1; i < argc; ++i) {
@@ -129,6 +133,7 @@ int main(int argc, char** argv) {
         else if (arg == "finetune")     mode_name = "finetune";
         else if (arg == "interactive")  mode_name = "interactive";
         else if (arg.rfind("--runtime=", 0) == 0) runtime_arg = arg.substr(10);
+        else if (arg.rfind("--backend=", 0) == 0) backend_arg = arg.substr(10);
         else if (arg.rfind("--coverage=", 0) == 0) {
             float v = std::strtof(arg.c_str() + 11, nullptr);
             if (v > 0.0f && v <= 1.0f) fov.coverage = v;
@@ -145,36 +150,11 @@ int main(int argc, char** argv) {
     std::cout << "EyeTrackVR OpenXR Calibration Overlay — " << mode_name
               << " (udp://127.0.0.1:" << cfg::PORT_SIGNAL << ")\n";
 
-    // Pick the OpenXR runtime. This is a SteamVR calibration tool, but the system's
-    // *active* OpenXR runtime is often something else (e.g. Virtual Desktop), which
-    // would report "no HMD". Unless overridden, point this process at SteamVR's
-    // runtime when it is installed. (SteamVR also drives the headset when you connect
-    // via Virtual Desktop / Link, so this is the right default in all cases.)
-    //   --runtime=keep        use the system's active runtime
-    //   --runtime=<path.json> use a specific runtime manifest
-    //   XR_RUNTIME_JSON set   respected as-is (no override)
-#ifdef _WIN32
-    const bool env_set = std::getenv("XR_RUNTIME_JSON") != nullptr;
-    if (runtime_arg == "keep") {
-        std::cout << "[INFO] Using the system's active OpenXR runtime (--runtime=keep)\n";
-    } else if (!runtime_arg.empty()) {
-        SetEnvironmentVariableA("XR_RUNTIME_JSON", runtime_arg.c_str());
-        std::cout << "[INFO] Using OpenXR runtime: " << runtime_arg << "\n";
-    } else if (env_set) {
-        std::cout << "[INFO] Using OpenXR runtime from XR_RUNTIME_JSON\n";
-    } else {
-        std::string sv = find_steamvr_runtime_json();
-        if (!sv.empty()) {
-            SetEnvironmentVariableA("XR_RUNTIME_JSON", sv.c_str());
-            std::cout << "[INFO] Using SteamVR OpenXR runtime: " << sv << "\n";
-        } else {
-            std::cout << "[INFO] SteamVR OpenXR runtime not found; using active runtime\n";
-        }
+    if (!backend_arg.empty() && backend_arg != "auto" &&
+        backend_arg != "openvr" && backend_arg != "openxr") {
+        std::cout << "[WARN] Unknown --backend=" << backend_arg << " (using auto)\n";
+        backend_arg.clear();
     }
-#else
-    if (!runtime_arg.empty() && runtime_arg != "keep")
-        setenv("XR_RUNTIME_JSON", runtime_arg.c_str(), 1);
-#endif
 
     UdpNet net;
     if (!net.init_send(cfg::PORT_SIGNAL)) return 1;
@@ -185,24 +165,81 @@ int main(int argc, char** argv) {
     const std::string dot  = find_asset(argv[0], "assets/Purple_Dot.png");
     const std::string font = find_asset(argv[0], "assets/OpenSans-Regular.ttf");
 
-    XrApp app;
-    if (!app.init(fov, dot.c_str(), font.c_str())) {
-        app.shutdown();
-        return 1;
+    // ── Backend selection ──────────────────────────────────────────────────────
+    // Prefer the OpenVR overlay backend whenever SteamVR is already running: it
+    // composites over the running game instead of replacing it, so calibrating
+    // never closes VRChat (or whatever is running) and exiting returns straight
+    // to it. Fall back to a focused OpenXR session otherwise (e.g. a native
+    // Virtual Desktop / standalone OpenXR runtime, where nothing is evicted).
+    //   --backend=openvr   force the OpenVR overlay backend (errors if no SteamVR)
+    //   --backend=openxr   force the OpenXR backend (note: evicts the running game)
+    std::unique_ptr<IOverlayBackend> app;
+
+    if (backend_arg != "openxr") {
+        auto ovr = std::make_unique<OvrApp>();
+        if (ovr->init(fov, dot.c_str(), font.c_str())) {
+            app = std::move(ovr);
+        } else if (backend_arg == "openvr") {
+            std::cout << "[ERROR] --backend=openvr requested but SteamVR is not running.\n";
+            return 1;
+        } else {
+            std::cout << "[INFO] Falling back to the OpenXR backend\n";
+        }
+    }
+
+    if (!app) {
+        // OpenXR scene session. Honour an explicit runtime override; otherwise
+        // only target SteamVR when this backend was forced (--backend=openxr).
+        // The auto path reaches here only when SteamVR is NOT running, so the
+        // active runtime — typically the one already driving the headset (e.g.
+        // Virtual Desktop) — is the right choice and we must not launch SteamVR.
+        //   --runtime=keep        use the system's active runtime
+        //   --runtime=<path.json> use a specific runtime manifest
+        //   XR_RUNTIME_JSON set   respected as-is (no override)
+#ifdef _WIN32
+        const bool env_set = std::getenv("XR_RUNTIME_JSON") != nullptr;
+        if (runtime_arg == "keep") {
+            std::cout << "[INFO] Using the system's active OpenXR runtime (--runtime=keep)\n";
+        } else if (!runtime_arg.empty()) {
+            SetEnvironmentVariableA("XR_RUNTIME_JSON", runtime_arg.c_str());
+            std::cout << "[INFO] Using OpenXR runtime: " << runtime_arg << "\n";
+        } else if (env_set) {
+            std::cout << "[INFO] Using OpenXR runtime from XR_RUNTIME_JSON\n";
+        } else if (backend_arg == "openxr") {
+            std::string sv = find_steamvr_runtime_json();
+            if (!sv.empty()) {
+                SetEnvironmentVariableA("XR_RUNTIME_JSON", sv.c_str());
+                std::cout << "[INFO] Using SteamVR OpenXR runtime: " << sv << "\n";
+            } else {
+                std::cout << "[INFO] SteamVR OpenXR runtime not found; using active runtime\n";
+            }
+        } else {
+            std::cout << "[INFO] Using the system's active OpenXR runtime\n";
+        }
+#else
+        if (!runtime_arg.empty() && runtime_arg != "keep")
+            setenv("XR_RUNTIME_JSON", runtime_arg.c_str(), 1);
+#endif
+        auto xr = std::make_unique<XrApp>();
+        if (!xr->init(fov, dot.c_str(), font.c_str())) {
+            xr->shutdown();
+            return 1;
+        }
+        app = std::move(xr);
     }
 
     mode->on_start(net);
 
     while (true) {
-        if (!app.poll_events()) break;
-        bool cont = app.frame([&](double dt, const GazeRange& g) {
+        if (!app->poll_events()) break;
+        bool cont = app->frame([&](double dt, const GazeRange& g) {
             return mode->update(dt, net, g);
         });
         if (!cont) break;
         if (mode->finished()) break;
     }
 
-    app.shutdown();
+    app->shutdown();
     net.close();
     std::cout << "[INFO] Done\n";
     return 0;

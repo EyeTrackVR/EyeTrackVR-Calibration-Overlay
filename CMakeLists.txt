@@ -27,6 +27,22 @@ target_link_libraries(EyeTrackVR-Overlay PRIVATE
     Vulkan::Vulkan
 )
 
+# OpenVR overlay backend (src/ovr_app.cpp). Enabled on Windows so the SteamVR
+# path can composite over a running game instead of evicting it. Uses the
+# bundled SDK in external/OpenVR. When disabled, ovr_app.cpp compiles to inert
+# stubs (HAVE_OPENVR undefined) and only the OpenXR backend is available.
+set(OPENVR_SDK_DIR "${PROJECT_SOURCE_DIR}/external/OpenVR")
+if(WIN32 AND EXISTS "${OPENVR_SDK_DIR}/headers/openvr.h")
+    target_compile_definitions(EyeTrackVR-Overlay PRIVATE HAVE_OPENVR)
+    target_include_directories(EyeTrackVR-Overlay PRIVATE "${OPENVR_SDK_DIR}/headers")
+    target_link_libraries(EyeTrackVR-Overlay PRIVATE
+        "${OPENVR_SDK_DIR}/lib/win64/openvr_api.lib")
+    add_custom_command(TARGET EyeTrackVR-Overlay POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${OPENVR_SDK_DIR}/bin/win64/openvr_api.dll" $<TARGET_FILE_DIR:EyeTrackVR-Overlay>
+    )
+endif()
+
 if(WIN32)
     # net.cpp uses Winsock; OpenXR/Vulkan loaders ship as DLLs.
     target_link_libraries(EyeTrackVR-Overlay PRIVATE ws2_32)

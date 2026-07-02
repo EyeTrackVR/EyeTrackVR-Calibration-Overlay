@@ -1,5 +1,5 @@
 #pragma once
-#include "xr_app.h"
+#include "scene.h"
 #include "net.h"
 #include "fov.h"
 
