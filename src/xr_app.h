@@ -83,6 +83,7 @@ private:
     // Grey full-view background (opaque projection layer behind the quads).
     QuadSwapchain proj_sc_[2];               // one per eye
     Texture       grey_tex_;
+    uint8_t       backdrop_gray_ = 96;
     uint32_t      proj_w_ = 0, proj_h_ = 0;
 
     // Per-frame view/FOV
@@ -91,6 +92,7 @@ private:
     XrView     views_[2]{};         // located in VIEW space (gaze geometry)
     XrView     local_views_[2]{};   // located in LOCAL space (background projection)
     bool       gaze_logged_ = false;
+    bool       gaze_warned_ = false;
 
     // Composition layers kept alive across xrEndFrame.
     XrCompositionLayerQuad            dot_layer_{};

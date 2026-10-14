@@ -38,6 +38,7 @@ private:
     vr::VROverlayHandle_t text_h_ = vr::k_ulOverlayHandleInvalid;
     bool                  dot_shown_  = false;
     bool                  text_shown_ = false;
+    uint8_t               backdrop_gray_ = 96;
 #endif
 
     FovConfig    fov_cfg_;

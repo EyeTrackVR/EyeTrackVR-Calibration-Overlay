@@ -13,6 +13,13 @@ namespace cfg {
 // convergence (more relaxed gaze).
 inline constexpr float OVERLAY_DIST = 3.0f;   // |z| of the overlay plane (m)
 
+// Keep compositor surfaces slightly separated. OpenVR sort order and OpenXR
+// layer order should resolve coplanar quads, but some drivers still flicker when
+// text and backdrop share the exact plane. The calibration dot remains exactly
+// at OVERLAY_DIST; only non-target UI is offset.
+inline constexpr float TEXT_DIST     = OVERLAY_DIST - 0.015f;
+inline constexpr float BACKDROP_DIST = OVERLAY_DIST + 0.030f;
+
 // UDP ports (identical to the OpenVR build so the Python EyeTrackVR side is
 // unchanged): signals out on PORT_SIGNAL, commands in on PORT_CMD.
 inline constexpr uint16_t PORT_SIGNAL = 2112;

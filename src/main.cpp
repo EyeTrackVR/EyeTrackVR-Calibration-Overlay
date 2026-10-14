@@ -142,6 +142,18 @@ int main(int argc, char** argv) {
             float v = std::strtof(arg.c_str() + 10, nullptr);
             if (v > 0.0f && v < 90.0f) fov.max_deg = v;
             else std::cout << "[WARN] Ignoring " << arg << " (expected 0 < v < 90)\n";
+        } else if (arg.rfind("--max-deg-up=", 0) == 0) {
+            float v = std::strtof(arg.c_str() + 13, nullptr);
+            if (v > 0.0f && v < 90.0f) fov.max_deg_up = v;
+            else std::cout << "[WARN] Ignoring " << arg << " (expected 0 < v < 90)\n";
+        } else if (arg.rfind("--max-deg-down=", 0) == 0) {
+            float v = std::strtof(arg.c_str() + 15, nullptr);
+            if (v > 0.0f && v < 90.0f) fov.max_deg_down = v;
+            else std::cout << "[WARN] Ignoring " << arg << " (expected 0 < v < 90)\n";
+        } else if (arg.rfind("--center-deg=", 0) == 0) {
+            float v = std::strtof(arg.c_str() + 13, nullptr);
+            if (v > -45.0f && v < 45.0f) fov.center_deg = v;
+            else std::cout << "[WARN] Ignoring " << arg << " (expected -45 < v < 45)\n";
         } else {
             std::cout << "[WARN] Unknown argument: " << arg << "\n";
         }

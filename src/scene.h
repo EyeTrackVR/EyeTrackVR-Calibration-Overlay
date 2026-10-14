@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <string>
 
 // What a calibration mode wants drawn this frame. Positions are in metres on the
@@ -9,6 +10,7 @@
 // Backend-agnostic: produced by the modes (modes.cpp) and consumed by whichever
 // rendering backend is active (OpenXR scene session or OpenVR overlay).
 struct Scene {
+    uint8_t     backdrop_gray = 96;
     bool        dot_visible  = false;
     float       dot_x        = 0.0f;
     float       dot_y        = 0.0f;

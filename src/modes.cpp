@@ -18,10 +18,15 @@ constexpr double DC_HOLD_S    = 0.500;
 constexpr double DC_SQUINT_WAIT_S = 5.500;
 
 // Capture grid in normalised gaze coordinates (±1 = edge of the gaze range).
+// Pushed out (v6 data collection, 2026-07-04): cardinals 0.786→0.85, corners
+// 0.607→0.60, so the fixed 9-point ring reaches the same eccentricity as the
+// jittered grid instead of sitting more central. The trainer's ring labels are
+// version-gated to match (dataset.py _RING_COORDS_V6). ±1 = edge of the gaze
+// range, whose extent is set by the --coverage/--max-deg flags at launch.
 const float DC_POS[9][2] = {
-    {-0.607f,  0.607f}, { 0.0f,  0.786f}, { 0.607f,  0.607f},
-    { 0.786f,  0.0f  }, { 0.607f, -0.607f}, { 0.0f, -0.786f},
-    {-0.607f, -0.607f}, {-0.786f, 0.0f  }, { 0.0f,    0.0f  },
+    {-0.60f,  0.60f}, { 0.0f,  0.85f}, { 0.60f,  0.60f},
+    { 0.85f,  0.0f }, { 0.60f, -0.60f}, { 0.0f, -0.85f},
+    {-0.60f, -0.60f}, {-0.85f, 0.0f }, { 0.0f,   0.0f  },
 };
 
 // Classic 3×3 grid (top row → bottom, right → left) at 57.1% of the range.
@@ -33,16 +38,25 @@ const float GRID[9][2] = {
 };
 const float CENTER_PT[1][2] = {{0.0f, 0.0f}};
 
-// Fine-tune grid: 5 points evenly spaced around a circle at 85% of the gaze
-// range (starting at top, clockwise), then the centre last. Normalised gaze
-// coordinates (±1 = edge of the gaze range).
-const float FINETUNE_POS[6][2] = {
-    { 0.0000f,  0.8500f},   // 0  top
-    { 0.8084f,  0.2627f},   // 1  upper-right
-    { 0.4996f, -0.6877f},   // 2  lower-right
-    {-0.4996f, -0.6877f},   // 3  lower-left
-    {-0.8084f,  0.2627f},   // 4  upper-left
-    { 0.0000f,  0.0000f},   // 5  centre (last)
+// Fine-tune grid: five outer points, five inner points, then centre. The inner
+// pentagon is rotated by 36 degrees (half the 72-degree point spacing), so the
+// two rings jointly sample ten interleaved directions instead of duplicating
+// the same five rays. This gives the fit substantially better mid-field spatial
+// coverage while retaining a comfortable outer reach.
+// Order must match NEXT_SMARTCAL_DOTS downstream.
+// Normalised gaze coordinates (±1 = edge of the gaze range).
+const float FINETUNE_POS[11][2] = {
+    { 0.000000f,  0.800000f},   // 0 outer top
+    { 0.760845f,  0.247214f},   // 1 outer upper-right
+    { 0.470228f, -0.647214f},   // 2 outer lower-right
+    {-0.470228f, -0.647214f},   // 3 outer lower-left
+    {-0.760845f,  0.247214f},   // 4 outer upper-left
+    { 0.246870f,  0.339787f},   // 5 inner upper-right
+    { 0.399444f, -0.129787f},   // 6 inner lower-right
+    { 0.000000f, -0.420000f},   // 7 inner bottom
+    {-0.399444f, -0.129787f},   // 8 inner lower-left
+    {-0.246870f,  0.339787f},   // 9 inner upper-left
+    { 0.000000f,  0.000000f},   // 10 centre (last)
 };
 
 uint32_t be32(const unsigned char* p) {
@@ -64,7 +78,7 @@ bool poll_cmd(UdpNet& net, Cmd& out) {
     if (len < 4) return false;
     out = Cmd{};
     out.code = (int32_t)be32(buf);
-    if (out.code == 111 && len >= 12) {
+    if ((out.code == 111 || out.code == 113) && len >= 12) {
         uint32_t xi = be32(buf + 4), yi = be32(buf + 8);
         std::memcpy(&out.x, &xi, 4);
         std::memcpy(&out.y, &yi, 4);
@@ -173,18 +187,27 @@ public:
             break;
         case ORBIT: {
             s.text = "Follow the dot -- keep your gaze on it";
-            double frac = t_ / ORBIT_S;
-            double a = kPi + 2.0 * kPi * ORBIT_ROTS * frac;
-            place(s, g, (float)std::cos(a), (float)std::sin(a), DOT_LARGE);
+            double frac = std::min(1.0, t_ / ORBIT_S);
+            // Parameter angle moves unevenly around a stretched/asymmetric
+            // ellipse. Convert elapsed fraction to arc-length fraction so the
+            // dot has constant visible speed on every HMD.
+            double a = arc_angle(g, std::fmod(ORBIT_ROTS * frac, 1.0));
+            float nx, ny;
+            path_coords(g, a, nx, ny);
+            place(s, g, nx, ny, DOT_LARGE);
             if (t_ >= ORBIT_S) next(SPIRAL);
             break;
         }
         case SPIRAL: {
             double frac = std::min(1.0, t_ / SPIRAL_S);
             double shrink = 1.0 - frac;
-            double a = kPi + 2.0 * kPi * ORBIT_ROTS + 2.0 * kPi * SPIRAL_ROTS * frac;
+            // Each spiral revolution uses the same constant-arc-speed mapping.
+            // Its overall radius still shrinks linearly as intended.
+            double a = arc_angle(g, std::fmod(SPIRAL_ROTS * frac, 1.0));
+            float nx, ny;
+            path_coords(g, a, nx, ny);
             float sz = DOT_LARGE + (DOT_SMALL - DOT_LARGE) * (float)frac;
-            place(s, g, (float)(shrink * std::cos(a)), (float)(shrink * std::sin(a)), sz);
+            place(s, g, (float)(shrink * nx), (float)(shrink * ny), sz);
             int secs = (int)(SPIRAL_S - t_) + 1;
             s.text = (secs <= 5) ? ("Almost done... " + std::to_string(secs) + "s")
                                  : std::string("Follow the dot -- keep your gaze on it");
@@ -214,6 +237,55 @@ private:
     static constexpr double SPIRAL_ROTS = 3.0, SPIRAL_S = 30.0;
 
     void next(Phase p) { phase_ = p; t_ = 0; }
+
+    // The upper gaze extent can be much shorter than the horizontal extent
+    // (e.g. 15 vs 28 degrees on the Beyond). A plain parametric ellipse then
+    // has a visibly flat upper cap. Raising positive sin(a) to the radius-ratio
+    // squared gives the top approximately circular curvature while preserving
+    // the exact side and top endpoints. The lower half remains unchanged so it
+    // can use the intentionally deeper downward range.
+    static void path_coords(const GazeRange& g, double a, float& nx, float& ny) {
+        nx = (float)std::cos(a);
+        const double sy = std::sin(a);
+        if (sy > 0.0) {
+            const double ratio = g.ry_up > 0.0f ? (double)g.rx / g.ry_up : 1.0;
+            const double exponent = std::clamp(ratio * ratio, 1.0, 4.0);
+            ny = (float)std::pow(sy, exponent);
+        } else {
+            ny = (float)sy;
+        }
+    }
+
+    // Map a 0..1 traversal fraction (starting at the leftmost point) to the
+    // parameter angle whose polyline arc length has advanced by that fraction.
+    // GazeRange::y is piecewise because upper/lower reach differs, so numerical
+    // integration is clearer and less error-prone than ellipse approximations.
+    static double arc_angle(const GazeRange& g, double frac) {
+        constexpr int N = 256;
+        frac = std::clamp(frac, 0.0, 1.0);
+        double cumulative[N + 1]{};
+        double prev_a = kPi;
+        float pnx, pny;
+        path_coords(g, prev_a, pnx, pny);
+        double prev_x = g.x(pnx);
+        double prev_y = g.y(pny);
+        for (int i = 1; i <= N; ++i) {
+            const double a = kPi + 2.0 * kPi * (double)i / N;
+            float nx, ny;
+            path_coords(g, a, nx, ny);
+            const double x = g.x(nx);
+            const double y = g.y(ny);
+            cumulative[i] = cumulative[i - 1] + std::hypot(x - prev_x, y - prev_y);
+            prev_x = x; prev_y = y;
+        }
+        const double target = frac * cumulative[N];
+        int hi = 1;
+        while (hi < N && cumulative[hi] < target) ++hi;
+        const double seg = cumulative[hi] - cumulative[hi - 1];
+        const double f = seg > 0.0 ? (target - cumulative[hi - 1]) / seg : 0.0;
+        return kPi + 2.0 * kPi * ((double)(hi - 1) + f) / N;
+    }
+
     static void place(Scene& s, const GazeRange& g, float nx, float ny, float sz) {
         s.dot_visible = true; s.dot_size = sz;
         s.dot_x = g.x(nx); s.dot_y = g.y(ny);
@@ -271,7 +343,10 @@ private:
     PointSequence seq_;
 };
 
-// ── finetune (5 points around a circle, then centre) ─────────────────────────
+// ── finetune (two rings around a circle, then centre) ────────────────────────
+// Emits point index 0..10 as each dot is captured, then 100 = done. The done
+// sentinel is 100 (not 9) because dot indices now reach 10 and would collide
+// with the classic 9=done value; the app's finetune handler matches on 100.
 class FineTuneMode : public IMode {
     enum Phase { INTRO, RUN, COMPLETE, DONE };
 public:
@@ -282,12 +357,12 @@ public:
         switch (phase_) {
         case INTRO:
             s.text = "Follow the purple dot";
-            if (t_ >= 1.0) { seq_.start(FINETUNE_POS, 6, 0); phase_ = RUN; t_ = 0; }
+            if (t_ >= 1.0) { seq_.start(FINETUNE_POS, 11, 0); phase_ = RUN; t_ = 0; }
             break;
         case RUN:
             s.text = "Follow the purple dot";
-            seq_.update(dt, net, g, s);   // signals point index 0..5 as each is captured
-            if (seq_.done) { net.send_int32(9); phase_ = COMPLETE; t_ = 0; }
+            seq_.update(dt, net, g, s);   // signals point index 0..10 as each is captured
+            if (seq_.done) { net.send_int32(100); phase_ = COMPLETE; t_ = 0; }
             break;
         case COMPLETE:
             s.text = "Fine-tune complete!";
@@ -317,13 +392,24 @@ public:
 
     Scene update(double dt, UdpNet& net, const GazeRange& g) override {
         Scene s;
+        s.backdrop_gray = backdrop_gray_;
         s.text_visible = show_text_;
         s.text         = text_;
 
         switch (state_) {
         case IDLE:
             handle_idle(net, s);
-            if (center_dot_) {
+            if (pin_dot_) {
+                // Pinned dot (cmd 113): appear large and shrink once, then hold
+                // indefinitely until re-pinned or hidden (cmd 114). Used by the
+                // blink-at-dot data-collection pass, where the user must keep a
+                // stable fixation target across several seconds of blinking.
+                pin_t_ += dt;
+                float f = (float)std::min(1.0, pin_t_ / DC_SHRINK_S);
+                s.dot_visible = true;
+                s.dot_size = DC_DOT_LARGE + (DC_DOT_SMALL - DC_DOT_LARGE) * f;
+                s.dot_x = g.x(pin_x_); s.dot_y = g.y(pin_y_);
+            } else if (center_dot_) {
                 s.dot_visible = true; s.dot_size = DC_DOT_SMALL;
                 s.dot_x = g.x(0.0f); s.dot_y = g.y(0.0f);
             }
@@ -372,6 +458,7 @@ public:
             finished_ = true;
             break;
         }
+        s.backdrop_gray = backdrop_gray_;
         return s;
     }
     bool finished() const override { return finished_; }
@@ -405,12 +492,26 @@ private:
                                         : "Look at each dot\nas it appears";
                 show_text_ = true; include_dc_ = false; center_dot_ = false;
                 t_ = 0; state_ = PASS_TEXT;
+            } else if (c.code == 113 && c.has_xy) {
+                // Pin a persistent dot at (x, y); ack with 21 so the app knows
+                // the dot is up (and can distinguish a new overlay from an old
+                // exe that ignores this command).
+                pin_x_ = std::clamp(c.x, -1.0f, 1.0f);
+                pin_y_ = std::clamp(c.y, -1.0f, 1.0f);
+                pin_t_ = 0; pin_dot_ = true;
+                net.send_int32(21);
+            } else if (c.code == 114) {
+                pin_dot_ = false;
             } else if (c.code == 120) {
                 text_ = "Look at center\nshift your headset around";
                 show_text_ = true; center_dot_ = true;
             } else if (c.code == 121) {
                 center_dot_ = false; show_text_ = false; text_.clear();
                 net.send_int32(19);
+            } else if (c.code == 130 || c.code == 131 || c.code == 132) {
+                // Pupil-reference illumination: dim, bright, or neutral.
+                backdrop_gray_ = c.code == 130 ? 24 : (c.code == 131 ? 208 : 96);
+                net.send_int32(22);
             } else if (c.code == 200) {
                 finished_ = true; state_ = FINISHED;
             }
@@ -443,6 +544,10 @@ private:
     State  state_ = IDLE;
     bool   finished_ = false;
     bool   show_text_ = false, center_dot_ = false, include_dc_ = false;
+    bool   pin_dot_ = false;
+    uint8_t backdrop_gray_ = 96;
+    float  pin_x_ = 0, pin_y_ = 0;
+    double pin_t_ = 0;
     std::string text_;
     double t_ = 0;
     int    rsub_ = 0;

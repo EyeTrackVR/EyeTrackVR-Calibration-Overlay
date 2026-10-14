@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iostream>
 
 namespace {
 
@@ -56,7 +57,44 @@ bool eye_plane_box(const XrView& view, float dist,
     x1 = std::min(px[1], px[2]);   // tightest right edge
     y0 = std::max(py[2], py[3]);   // tightest bottom edge
     y1 = std::min(py[0], py[1]);   // tightest top edge
-    return x1 > x0 && y1 > y0;
+    if (x1 <= x0 || y1 <= y0) return false;
+
+    // With a rotated/canted XrView the projected frustum is a slanted quad.
+    // Taking independent tightest X/Y edges does not guarantee that the four
+    // combined rectangle corners lie inside that quad (cardinal targets remain
+    // visible while diagonals clip). OpenVR views on conventional headsets are
+    // axis-aligned and pass unchanged; canted OpenXR views are shrunk only as
+    // much as needed to make the whole axis-aligned box genuinely inscribed.
+    auto inside_quad = [&](float x, float y) {
+        bool pos = false, neg = false;
+        for (int i = 0; i < 4; ++i) {
+            const int j = (i + 1) & 3;
+            const float cross = (px[j] - px[i]) * (y - py[i])
+                              - (py[j] - py[i]) * (x - px[i]);
+            pos |= cross > 1e-5f;
+            neg |= cross < -1e-5f;
+        }
+        return !(pos && neg);
+    };
+    auto box_inside = [&](float ax0, float ax1, float ay0, float ay1) {
+        return inside_quad(ax0, ay0) && inside_quad(ax0, ay1)
+            && inside_quad(ax1, ay0) && inside_quad(ax1, ay1);
+    };
+    if (!box_inside(x0, x1, y0, y1)) {
+        const float mx = (x0 + x1) * 0.5f, my = (y0 + y1) * 0.5f;
+        if (!inside_quad(mx, my)) return false;
+        const float hx = (x1 - x0) * 0.5f, hy = (y1 - y0) * 0.5f;
+        float lo = 0.0f, hi = 1.0f;
+        for (int i = 0; i < 24; ++i) {
+            const float k = (lo + hi) * 0.5f;
+            if (box_inside(mx - hx * k, mx + hx * k,
+                           my - hy * k, my + hy * k)) lo = k;
+            else hi = k;
+        }
+        x0 = mx - hx * lo; x1 = mx + hx * lo;
+        y0 = my - hy * lo; y1 = my + hy * lo;
+    }
+    return true;
 }
 
 } // namespace
@@ -73,11 +111,53 @@ bool compute_gaze_range(const XrView views[2], float dist,
     const float y0 = std::max(ly0, ry0), y1 = std::min(ly1, ry1);
     if (x1 <= x0 || y1 <= y0) return false;
 
-    out.center_x = (x0 + x1) * 0.5f;
-    out.center_y = (y0 + y1) * 0.5f;
+    // Coverage fraction about the binocular centre, then clamp each edge
+    // independently to the eccentricity cap about straight-ahead. The cap is an
+    // oculomotor limit, so it applies per direction relative to the eyes'
+    // neutral axis (elevation 0), not symmetrically about the display centre:
+    // on headsets whose FOV extends much further down than up (canted displays
+    // like the Beyond, most wide-FOV HMDs), a symmetric cap about the display
+    // centre pushes one row of targets past what the eyes can reach.
+    const float cx = (x0 + x1) * 0.5f, cy = (y0 + y1) * 0.5f;
+    const float cap    = std::tan(cfg.max_deg * kPi / 180.0f) * dist;
+    const float cap_up = std::tan(cfg.max_deg_up * kPi / 180.0f) * dist;
+    const float cap_dn = std::tan(cfg.max_deg_down * kPi / 180.0f) * dist;
+    const float left  = std::max(cx + (x0 - cx) * cfg.coverage, -cap);
+    const float right = std::min(cx + (x1 - cx) * cfg.coverage,  cap);
+    const float bot   = std::max(cy + (y0 - cy) * cfg.coverage, -cap_dn);
+    const float top   = std::min(cy + (y1 - cy) * cfg.coverage,  cap_up);
+    if (right <= left || top <= bot) return false;
 
-    const float cap = std::tan(cfg.max_deg * kPi / 180.0f) * dist;
-    out.rx = std::min((x1 - x0) * 0.5f * cfg.coverage, cap);
-    out.ry = std::min((y1 - y0) * 0.5f * cfg.coverage, cap);
+    // Normalised gaze coordinates are training/calibration labels, so a given
+    // value must mean the same angular displacement in either direction.  Do
+    // not use the midpoint of an asymmetric HMD frustum as zero: that makes
+    // (for example) +0.8 and -0.8 represent different eye rotations and
+    // silently mislabels cross-HMD data.  Anchor zero at straight ahead and use
+    // the tighter binocular side as the symmetric reachable radius.
+    out.center_x = 0.0f;
+    out.rx = std::min(right, -left);
+
+    // Keep the optional vertical anchor. Vertical reach is intentionally
+    // asymmetric: most HMDs and human gaze have substantially more usable
+    // range below straight-ahead than above it. Downstream code must interpret
+    // the sign-specific angular scale instead of assuming +/-ny are equal.
+    const float want_cy = std::tan(cfg.center_deg * kPi / 180.0f) * dist;
+    out.center_y = std::clamp(want_cy, bot + 0.05f * (top - bot),
+                                       top - 0.05f * (top - bot));
+    out.ry_up = top - out.center_y;
+    out.ry_down = out.center_y - bot;
+    if (out.rx <= 0.0f || out.ry_up <= 0.0f || out.ry_down <= 0.0f) return false;
     return true;
+}
+
+void log_gaze_range(const GazeRange& g, const FovConfig& cfg, float dist) {
+    auto deg = [&](float m) { return std::atan(m / dist) * 180.0f / kPi; };
+    std::cout << "[INFO] Binocular FOV at " << dist << " m: centre=("
+              << g.center_x << ", " << g.center_y << ") m ("
+              << deg(g.center_y) << "° elev)  gaze range: ±"
+              << g.rx << " m (±" << deg(g.rx) << "°) x +" << g.ry_up
+              << "/-" << g.ry_down << " m (" << deg(g.center_y + g.ry_up)
+              << "°.." << deg(g.center_y - g.ry_down) << "° elev)  coverage="
+              << cfg.coverage << "  cap=" << cfg.max_deg << "° lat/"
+              << cfg.max_deg_up << "° up/" << cfg.max_deg_down << "° down\n";
 }

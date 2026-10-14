@@ -298,15 +298,18 @@ void XrApp::locate_and_update_gaze(XrTime t) {
         !(vs.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT))
         return;
 
-    if (compute_gaze_range(views_, cfg::OVERLAY_DIST, fov_cfg_, gaze_) && !gaze_logged_) {
-        gaze_logged_ = true;
-        const float deg_x = std::atan(gaze_.rx / cfg::OVERLAY_DIST) * 180.0f / 3.14159265f;
-        const float deg_y = std::atan(gaze_.ry / cfg::OVERLAY_DIST) * 180.0f / 3.14159265f;
-        std::cout << "[INFO] Binocular FOV at " << cfg::OVERLAY_DIST << " m: centre=("
-                  << gaze_.center_x << ", " << gaze_.center_y << ") m  gaze range: ±"
-                  << gaze_.rx << " m (±" << deg_x << "°) x ±"
-                  << gaze_.ry << " m (±" << deg_y << "°)  coverage="
-                  << fov_cfg_.coverage << "  cap=" << fov_cfg_.max_deg << "°\n";
+    if (compute_gaze_range(views_, cfg::OVERLAY_DIST, fov_cfg_, gaze_)) {
+        if (!gaze_logged_) {
+            gaze_logged_ = true;
+            for (int e = 0; e < 2; ++e)
+                std::cout << "[INFO] Eye " << (e ? "R" : "L") << ": fov up/down "
+                          << views_[e].fov.angleUp * 57.2957795f << "/"
+                          << views_[e].fov.angleDown * 57.2957795f << "°\n";
+            log_gaze_range(gaze_, fov_cfg_, cfg::OVERLAY_DIST);
+        }
+    } else if (!gaze_warned_) {
+        gaze_warned_ = true;
+        std::cout << "[WARN] Could not resolve eye frusta; using fallback gaze range\n";
     }
 }
 
@@ -415,6 +418,16 @@ bool XrApp::frame(const std::function<Scene(double, const GazeRange&)>& update_c
         locate_and_update_gaze(fs.predictedDisplayTime);
         Scene scene = update_cb(dt, gaze_);
 
+        if (scene.backdrop_gray != backdrop_gray_) {
+            backdrop_gray_ = scene.backdrop_gray;
+            std::vector<uint8_t> pixels((size_t)64 * 64 * 4);
+            for (size_t i = 0; i < pixels.size(); i += 4) {
+                pixels[i] = pixels[i + 1] = pixels[i + 2] = backdrop_gray_;
+                pixels[i + 3] = 255;
+            }
+            grey_tex_.upload(vk_, pixels.data());
+        }
+
         // Opaque grey background behind everything.
         render_background(layers);
 
@@ -428,7 +441,10 @@ bool XrApp::frame(const std::function<Scene(double, const GazeRange&)>& update_c
             const float wm = 2.25f;
             const float hm = wm * ((float)text_sc_.h / (float)text_sc_.w);
             XrPosef p = kIdentityPose;
-            p.position = {gaze_.center_x, gaze_.center_y - 0.825f, -cfg::OVERLAY_DIST};
+            const float text_scale = cfg::TEXT_DIST / cfg::OVERLAY_DIST;
+            p.position = {gaze_.center_x * text_scale,
+                          (gaze_.center_y - 0.825f) * text_scale,
+                          -cfg::TEXT_DIST};
             render_quad(text_sc_, text_tex_, p, wm, hm, text_layer_);
             layers.push_back((XrCompositionLayerBaseHeader*)&text_layer_);
         }
