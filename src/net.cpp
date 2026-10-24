@@ -1,10 +1,17 @@
 #include "net.h"
 
+#include <chrono>
 #include <cstring>
 #include <iostream>
+#include <thread>
 
 #ifdef _WIN32
-#  define WIN32_LEAN_AND_MEAN
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
 #  include <winsock2.h>
 #  include <ws2tcpip.h>
    using socklen_t = int;
@@ -51,6 +58,37 @@ sockaddr_in loopback_addr(uint16_t port) {
     return a;
 }
 
+#ifdef _WIN32
+// Stop Windows reporting ICMP "port unreachable" (nobody listening yet) as a
+// WSAECONNRESET error on the next send/recv of this UDP socket.
+void disable_connreset(long long sock) {
+#ifndef SIO_UDP_CONNRESET
+#define SIO_UDP_CONNRESET _WSAIOW(IOC_VENDOR, 12)
+#endif
+    BOOL off = FALSE;
+    DWORD ret = 0;
+    WSAIoctl(SK(sock), SIO_UDP_CONNRESET, &off, sizeof(off), nullptr, 0, &ret, nullptr, nullptr);
+}
+#endif
+
+int last_error() {
+#ifdef _WIN32
+    return WSAGetLastError();
+#else
+    return errno;
+#endif
+}
+
+// Ask whoever is bound to `port` (normally a stale overlay) to quit.
+void send_quit(uint16_t port) {
+    const nativesock s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if ((long long)s == kInvalid) return;
+    sockaddr_in a = loopback_addr(port);
+    const unsigned char quit[4] = {0, 0, 0, 200};
+    sendto(s, (const char*)quit, 4, 0, (sockaddr*)&a, sizeof(a));
+    CLOSESOCK(s);
+}
+
 } // namespace
 
 UdpNet::~UdpNet() { close(); }
@@ -62,41 +100,63 @@ bool UdpNet::init_send(uint16_t send_port) {
     }
     long long s = (long long)socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (s == kInvalid) {
-        std::cout << "[ERROR] failed to create send socket\n";
+        std::cout << "[ERROR] failed to create send socket (" << last_error() << ")\n";
         return false;
     }
     send_sock_ = s;
-    // The target address is fixed; store it lazily per send via connect() so we
-    // can use plain send(). connect() on a UDP socket only sets the default peer.
+#ifdef _WIN32
+    disable_connreset(send_sock_);
+#endif
+    // connect() on a UDP socket only sets the default peer, so plain send() works.
     sockaddr_in addr = loopback_addr(send_port);
     if (connect(SK(send_sock_), (sockaddr*)&addr, sizeof(addr)) != 0) {
-        std::cout << "[ERROR] failed to connect send socket\n";
+        std::cout << "[ERROR] failed to connect send socket (" << last_error() << ")\n";
         close();
         return false;
     }
     return true;
 }
 
-bool UdpNet::init_recv(uint16_t recv_port) {
+bool UdpNet::init_recv(uint16_t recv_port, double wait_s) {
     if (!ensure_started()) return false;
     long long s = (long long)socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (s == kInvalid) {
-        std::cout << "[ERROR] failed to create recv socket\n";
+        std::cout << "[ERROR] failed to create recv socket (" << last_error() << ")\n";
         return false;
     }
     recv_sock_ = s;
 
-    int reuse = 1;
-    setsockopt(SK(recv_sock_), SOL_SOCKET, SO_REUSEADDR,
-               (const char*)&reuse, sizeof(reuse));
+#ifdef _WIN32
+    disable_connreset(recv_sock_);
+    // Exclusive: nobody (e.g. a second overlay) may silently share the port and
+    // steal commands. The old build used SO_REUSEADDR, which on Windows let a
+    // second instance bind the same port with undefined delivery.
+    int excl = 1;
+    setsockopt(SK(recv_sock_), SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (const char*)&excl, sizeof(excl));
+#endif
 
     sockaddr_in addr = loopback_addr(recv_port);
-    if (bind(SK(recv_sock_), (sockaddr*)&addr, sizeof(addr)) != 0) {
-        std::cout << "[ERROR] failed to bind recv socket on port " << recv_port << "\n";
-        CLOSESOCK(SK(recv_sock_));
-        recv_sock_ = kInvalid;
-        return false;
+    using clock = std::chrono::steady_clock;
+    const auto deadline = clock::now() + std::chrono::milliseconds((int)(wait_s * 1000.0));
+    bool asked = false;
+    while (bind(SK(recv_sock_), (sockaddr*)&addr, sizeof(addr)) != 0) {
+        const int err = last_error();
+        if (!asked) {
+            std::cout << "[WARN] Command port " << recv_port << " is busy (" << err
+                      << "); asking a leftover overlay instance to quit\n";
+            asked = true;
+        }
+        if (clock::now() >= deadline) {
+            std::cout << "[ERROR] failed to bind recv socket on port " << recv_port
+                      << " — is another overlay still running?\n";
+            CLOSESOCK(SK(recv_sock_));
+            recv_sock_ = kInvalid;
+            return false;
+        }
+        send_quit(recv_port);
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
     }
+    if (asked) std::cout << "[INFO] Command port " << recv_port << " acquired\n";
 
     // Non-blocking: polled once per frame.
 #ifdef _WIN32
@@ -112,21 +172,41 @@ bool UdpNet::init_recv(uint16_t recv_port) {
 void UdpNet::send_int32(int32_t v) {
     if (send_sock_ == kInvalid) return;
     uint32_t nv = htonl((uint32_t)v);
-    if (send(SK(send_sock_), (const char*)&nv, 4, 0) != 4)
-        std::cout << "[WARN] UDP send failed\n";
+    if (send(SK(send_sock_), (const char*)&nv, 4, 0) != 4) {
+        // With nobody listening, Windows reports the ICMP "port unreachable"
+        // from a previous datagram here (WSAECONNRESET); harmless for UDP.
+        const int err = last_error();
+#ifdef _WIN32
+        if (err == WSAECONNRESET) {
+            if (send(SK(send_sock_), (const char*)&nv, 4, 0) == 4) return;
+        }
+#else
+        if (err == ECONNREFUSED) {
+            if (send(SK(send_sock_), (const char*)&nv, 4, 0) == 4) return;
+        }
+#endif
+        std::cout << "[WARN] UDP send of " << v << " failed (" << err << ")\n";
+    }
 }
 
 int UdpNet::recv(void* buf, int buflen) {
     if (recv_sock_ == kInvalid) return 0;
-    int n = (int)recvfrom(SK(recv_sock_), (char*)buf, buflen, 0, nullptr, nullptr);
-    if (n >= 0) return n;
+    for (;;) {
+        int n = (int)recvfrom(SK(recv_sock_), (char*)buf, buflen, 0, nullptr, nullptr);
+        if (n >= 0) return n;
+        const int err = last_error();
 #ifdef _WIN32
-    int err = WSAGetLastError();
-    if (err == WSAEWOULDBLOCK) return 0;
+        if (err == WSAEWOULDBLOCK) return 0;
+        // Oversized datagram: truncated into buf; treat as received.
+        if (err == WSAEMSGSIZE) return buflen;
+        // ICMP port-unreachable echoes surface on Windows UDP sockets; skip.
+        if (err == WSAECONNRESET) continue;
 #else
-    if (errno == EAGAIN || errno == EWOULDBLOCK) return 0;
+        if (err == EAGAIN || err == EWOULDBLOCK) return 0;
+        if (err == EINTR || err == ECONNREFUSED) continue;
 #endif
-    return -1;
+        return -1;
+    }
 }
 
 void UdpNet::close() {

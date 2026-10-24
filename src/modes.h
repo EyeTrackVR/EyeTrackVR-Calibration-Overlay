@@ -14,11 +14,14 @@ public:
     virtual ~IMode() = default;
     virtual Scene update(double dt, UdpNet& net, const GazeRange& g) = 0;
     virtual bool  finished() const = 0;
-    // Called once after the socket is ready (e.g. to emit the "ready" signal).
+    // Called once rendering is up and the headset geometry is known (e.g. to
+    // emit the "ready" signal).
     virtual void  on_start(UdpNet&) {}
     // True if this mode receives commands (binds the command port).
     virtual bool  needs_recv() const { return false; }
 };
 
-// name: "center" | "9point" | "ellipse" | "datacollect" | "interactive".
+// name: "center" | "9point" | "ellipse" | "datacollect" | "finetune" | "interactive".
+// Returns nullptr for an unknown name.
 std::unique_ptr<IMode> make_mode(const std::string& name);
+bool is_mode_name(const std::string& name);

@@ -1,14 +1,14 @@
 #include "xr_app.h"
 #include "config.h"
+#include "sprites.h"
+#include "text.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstring>
 #include <iostream>
 #include <thread>
-
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
 
 namespace {
 
@@ -20,36 +20,68 @@ bool xr_ok(XrResult r, const char* what) {
     return false;
 }
 
+bool fatal(XrResult r) {
+    return r == XR_ERROR_SESSION_LOST || r == XR_ERROR_INSTANCE_LOST ||
+           r == XR_ERROR_RUNTIME_FAILURE || r == XR_ERROR_HANDLE_INVALID;
+}
+
+double now_s() {
+    using namespace std::chrono;
+    return duration<double>(steady_clock::now().time_since_epoch()).count();
+}
+
 } // namespace
 
-bool XrApp::init(const FovConfig& fov_cfg, const char* dot_png, const char* font_ttf) {
+bool XrApp::init(const FovConfig& fov_cfg) {
     fov_cfg_ = fov_cfg;
-    if (!create_instance())  return false;
-    if (!create_vulkan())    return false;
-    if (!create_session())   return false;
-
-    text_render_.load(font_ttf, 1024, 300);   // best-effort; text simply omitted if absent
-    if (!create_swapchains(dot_png)) return false;
+    geom_ = fallback_view_geometry(fov_cfg_, cfg::OVERLAY_DIST);
+    if (!create_instance())   return false;
+    if (!create_vulkan())     return false;
+    if (!create_session())    return false;
+    if (!create_swapchains()) return false;
+    load_visibility_masks();
+    std::cout << "[INFO] OpenXR backend ready\n";
     return true;
 }
 
 bool XrApp::create_instance() {
-    const char* exts[] = {XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME};
+    uint32_t n = 0;
+    xrEnumerateInstanceExtensionProperties(nullptr, 0, &n, nullptr);
+    std::vector<XrExtensionProperties> props(n, {XR_TYPE_EXTENSION_PROPERTIES});
+    if (n) xrEnumerateInstanceExtensionProperties(nullptr, n, &n, props.data());
+    bool has_vk2 = false;
+    for (const auto& p : props) {
+        if (!std::strcmp(p.extensionName, XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME)) has_vk2 = true;
+        if (!std::strcmp(p.extensionName, XR_KHR_VISIBILITY_MASK_EXTENSION_NAME)) has_visibility_mask_ = true;
+    }
+    if (!has_vk2 && n > 0) {
+        std::cout << "[ERROR] The active OpenXR runtime does not support XR_KHR_vulkan_enable2\n";
+        return false;
+    }
+    std::vector<const char*> exts = {XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME};
+    if (has_visibility_mask_) exts.push_back(XR_KHR_VISIBILITY_MASK_EXTENSION_NAME);
 
     XrInstanceCreateInfo ci{XR_TYPE_INSTANCE_CREATE_INFO};
     std::strncpy(ci.applicationInfo.applicationName, "EyeTrackVR Calibration",
                  XR_MAX_APPLICATION_NAME_SIZE - 1);
-    ci.applicationInfo.applicationVersion = 1;
+    std::strncpy(ci.applicationInfo.engineName, "etvr-overlay", XR_MAX_ENGINE_NAME_SIZE - 1);
+    ci.applicationInfo.applicationVersion = 2;
     // Request 1.0 (not XR_CURRENT_API_VERSION, which is 1.1 in recent headers):
     // SteamVR's and several other PC runtimes only implement OpenXR 1.0 and
     // reject a 1.1 instance outright.
-    ci.applicationInfo.apiVersion         = XR_API_VERSION_1_0;
-    ci.enabledExtensionCount              = 1;
-    ci.enabledExtensionNames              = exts;
+    ci.applicationInfo.apiVersion         = XR_MAKE_VERSION(1, 0, 0);
+    ci.enabledExtensionCount              = (uint32_t)exts.size();
+    ci.enabledExtensionNames              = exts.data();
     if (!xr_ok(xrCreateInstance(&ci, &instance_), "xrCreateInstance")) {
         std::cout << "[ERROR] No OpenXR runtime available? Ensure SteamVR/your runtime is active.\n";
         return false;
     }
+    XrInstanceProperties ip{XR_TYPE_INSTANCE_PROPERTIES};
+    if (XR_SUCCEEDED(xrGetInstanceProperties(instance_, &ip)))
+        std::cout << "[INFO] OpenXR runtime: " << ip.runtimeName << " "
+                  << XR_VERSION_MAJOR(ip.runtimeVersion) << "." << XR_VERSION_MINOR(ip.runtimeVersion)
+                  << "." << XR_VERSION_PATCH(ip.runtimeVersion)
+                  << (has_visibility_mask_ ? " (visibility mask supported)" : "") << "\n";
 
     XrSystemGetInfo si{XR_TYPE_SYSTEM_GET_INFO};
     si.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
@@ -73,13 +105,17 @@ bool XrApp::create_instance() {
         return false;
     }
 
-    uint32_t n = 0;
-    xrEnumerateEnvironmentBlendModes(instance_, system_, view_cfg_, 0, &n, nullptr);
-    if (n > 0) {
-        std::vector<XrEnvironmentBlendMode> modes(n);
-        xrEnumerateEnvironmentBlendModes(instance_, system_, view_cfg_, n, &n, modes.data());
+    uint32_t bn = 0;
+    xrEnumerateEnvironmentBlendModes(instance_, system_, view_cfg_, 0, &bn, nullptr);
+    if (bn > 0) {
+        std::vector<XrEnvironmentBlendMode> modes(bn);
+        xrEnumerateEnvironmentBlendModes(instance_, system_, view_cfg_, bn, &bn, modes.data());
         blend_ = modes[0];
+        for (auto m : modes) if (m == XR_ENVIRONMENT_BLEND_MODE_OPAQUE) blend_ = m;
     }
+
+    if (has_visibility_mask_)
+        xrGetInstanceProcAddr(instance_, "xrGetVisibilityMaskKHR", (PFN_xrVoidFunction*)&pfnVisMask_);
     return true;
 }
 
@@ -98,8 +134,7 @@ bool XrApp::create_vulkan() {
     }
 
     XrGraphicsRequirementsVulkan2KHR reqs{XR_TYPE_GRAPHICS_REQUIREMENTS_VULKAN2_KHR};
-    if (!xr_ok(pfnGetReqs_(instance_, system_, &reqs),
-               "xrGetVulkanGraphicsRequirements2KHR"))
+    if (!xr_ok(pfnGetReqs_(instance_, system_, &reqs), "xrGetVulkanGraphicsRequirements2KHR"))
         return false;
 
     // --- VkInstance (created by the runtime so it gets the extensions it needs) ---
@@ -180,30 +215,30 @@ bool XrApp::create_session() {
     if (!xr_ok(xrCreateSession(instance_, &sci, &session_), "xrCreateSession"))
         return false;
 
+    // Everything is head-locked: quads, the uniform background and the gaze
+    // geometry all live in VIEW space, so lost tracking never displaces them.
     XrReferenceSpaceCreateInfo rci{XR_TYPE_REFERENCE_SPACE_CREATE_INFO};
     rci.poseInReferenceSpace = kIdentityPose;
-    rci.referenceSpaceType   = XR_REFERENCE_SPACE_TYPE_VIEW;    // head-locked
-    if (!xr_ok(xrCreateReferenceSpace(session_, &rci, &view_space_),
-               "xrCreateReferenceSpace(VIEW)"))
-        return false;
-    rci.referenceSpaceType   = XR_REFERENCE_SPACE_TYPE_LOCAL;   // world-locked
-    return xr_ok(xrCreateReferenceSpace(session_, &rci, &local_space_),
-                 "xrCreateReferenceSpace(LOCAL)");
+    rci.referenceSpaceType   = XR_REFERENCE_SPACE_TYPE_VIEW;
+    return xr_ok(xrCreateReferenceSpace(session_, &rci, &view_space_), "xrCreateReferenceSpace(VIEW)");
 }
 
-bool XrApp::make_swapchain(uint32_t w, uint32_t h, QuadSwapchain& out) {
+bool XrApp::make_swapchain(uint32_t w, uint32_t h, Swapchain& out) {
     uint32_t fc = 0;
     xrEnumerateSwapchainFormats(session_, 0, &fc, nullptr);
     std::vector<int64_t> formats(fc);
-    xrEnumerateSwapchainFormats(session_, fc, &fc, formats.data());
+    if (fc) xrEnumerateSwapchainFormats(session_, fc, &fc, formats.data());
 
+    // Prefer sRGB formats: the textures are sRGB-encoded and the blit then
+    // round-trips them exactly.
     const int64_t prefs[] = {VK_FORMAT_R8G8B8A8_SRGB, VK_FORMAT_B8G8R8A8_SRGB,
                              VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_B8G8R8A8_UNORM};
     int64_t chosen = formats.empty() ? (int64_t)VK_FORMAT_R8G8B8A8_SRGB : formats[0];
+    bool picked = false;
     for (int64_t p : prefs) {
-        for (int64_t f : formats) if (f == p) { chosen = p; goto picked; }
+        for (int64_t f : formats) if (f == p) { chosen = p; picked = true; break; }
+        if (picked) break;
     }
-picked:
     XrSwapchainCreateInfo ci{XR_TYPE_SWAPCHAIN_CREATE_INFO};
     ci.usageFlags  = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT;
     ci.format      = chosen;
@@ -219,8 +254,10 @@ picked:
     uint32_t ic = 0;
     xrEnumerateSwapchainImages(out.handle, 0, &ic, nullptr);
     std::vector<XrSwapchainImageVulkanKHR> imgs(ic, {XR_TYPE_SWAPCHAIN_IMAGE_VULKAN_KHR});
-    xrEnumerateSwapchainImages(out.handle, ic, &ic,
-                               (XrSwapchainImageBaseHeader*)imgs.data());
+    if (!ic || !xr_ok(xrEnumerateSwapchainImages(out.handle, ic, &ic,
+                                                 (XrSwapchainImageBaseHeader*)imgs.data()),
+                      "xrEnumerateSwapchainImages"))
+        return false;
     out.images.clear();
     for (auto& im : imgs) out.images.push_back(im.image);
     out.w = w;
@@ -228,174 +265,231 @@ picked:
     return true;
 }
 
-bool XrApp::create_swapchains(const char* dot_png) {
-    int n = 0;
-    unsigned char* px = stbi_load(dot_png, &dot_w_, &dot_h_, &n, 4);
-    if (!px) {
-        std::cout << "[ERROR] Could not load dot image: " << dot_png << "\n";
-        return false;
-    }
-    if (!dot_tex_.create(vk_, (uint32_t)dot_w_, (uint32_t)dot_h_)) { stbi_image_free(px); return false; }
-    dot_tex_.upload(vk_, px);
-    stbi_image_free(px);
-    if (!make_swapchain((uint32_t)dot_w_, (uint32_t)dot_h_, dot_sc_)) return false;
+bool XrApp::make_quad(uint32_t w, uint32_t h, QuadLayer& q) {
+    return q.tex.create(vk_, w, h) && make_swapchain(w, h, q.sc);
+}
 
-    if (text_render_.ready()) {
-        if (!text_tex_.create(vk_, (uint32_t)text_render_.width(),
-                                   (uint32_t)text_render_.height()))
-            return false;
-        text_render_.render(" ");                 // prime the image layout
-        text_tex_.upload(vk_, text_render_.pixels());
-        last_text_ = " ";
-        if (!make_swapchain((uint32_t)text_render_.width(),
-                            (uint32_t)text_render_.height(), text_sc_))
-            return false;
-    }
+bool XrApp::create_swapchains() {
+    const Image& dot = sprites::dot();
+    const Image& ring = sprites::ring();
+    const Image& trail = sprites::trail();
+    if (!make_quad((uint32_t)dot.w, (uint32_t)dot.h, dot_)) return false;
+    if (!make_quad((uint32_t)ring.w, (uint32_t)ring.h, ring_)) return false;
+    if (!make_quad((uint32_t)trail.w, (uint32_t)trail.h, trail_)) return false;
+    if (!make_quad(TextRenderer::kMaxWidth, TextRenderer::kMaxHeight, panel_)) return false;
 
     // Grey background: one projection swapchain per eye at the recommended
-    // render resolution, filled each frame by upscaling a small grey texture.
+    // render resolution, filled each frame by upscaling a tiny grey texture.
     uint32_t vc = 0;
     xrEnumerateViewConfigurationViews(instance_, system_, view_cfg_, 0, &vc, nullptr);
     std::vector<XrViewConfigurationView> vcv(vc, {XR_TYPE_VIEW_CONFIGURATION_VIEW});
-    xrEnumerateViewConfigurationViews(instance_, system_, view_cfg_, vc, &vc, vcv.data());
+    if (vc) xrEnumerateViewConfigurationViews(instance_, system_, view_cfg_, vc, &vc, vcv.data());
     if (vc < 2) { std::cout << "[ERROR] Expected 2 views\n"; return false; }
-    proj_w_ = vcv[0].recommendedImageRectWidth;
-    proj_h_ = vcv[0].recommendedImageRectHeight;
-
-    constexpr uint8_t kGrey = 96;
-    std::vector<uint8_t> grey((size_t)64 * 64 * 4);
-    for (size_t i = 0; i < grey.size(); i += 4) {
-        grey[i + 0] = kGrey; grey[i + 1] = kGrey; grey[i + 2] = kGrey; grey[i + 3] = 255;
+    if (!grey_tex_.create(vk_, 4, 4)) return false;
+    for (int e = 0; e < 2; ++e) {
+        // The background is a flat colour: a reduced resolution is plenty and
+        // keeps per-frame blits cheap on very high-resolution headsets.
+        const uint32_t w = std::max(64u, vcv[e].recommendedImageRectWidth / 2);
+        const uint32_t h = std::max(64u, vcv[e].recommendedImageRectHeight / 2);
+        if (!make_swapchain(w, h, proj_sc_[e])) return false;
     }
-    if (!grey_tex_.create(vk_, 64, 64)) return false;
-    grey_tex_.upload(vk_, grey.data());
-    for (int e = 0; e < 2; ++e)
-        if (!make_swapchain(proj_w_, proj_h_, proj_sc_[e])) return false;
-
     return true;
 }
 
-void XrApp::locate_and_update_gaze(XrTime t) {
+void XrApp::load_visibility_masks() {
+    masks_dirty_ = false;
+    if (!pfnVisMask_) return;
+    for (uint32_t i = 0; i < 2; ++i) {
+        masks_[i].clear();
+        XrVisibilityMaskKHR m{XR_TYPE_VISIBILITY_MASK_KHR};
+        if (XR_FAILED(pfnVisMask_(session_, view_cfg_, i, XR_VISIBILITY_MASK_TYPE_LINE_LOOP_KHR, &m)) ||
+            m.vertexCountOutput < 3)
+            continue;
+        std::vector<XrVector2f> v(m.vertexCountOutput);
+        std::vector<uint32_t> idx(m.indexCountOutput);
+        m.vertexCapacityInput = (uint32_t)v.size();
+        m.vertices            = v.data();
+        m.indexCapacityInput  = (uint32_t)idx.size();
+        m.indices             = idx.empty() ? nullptr : idx.data();
+        if (XR_FAILED(pfnVisMask_(session_, view_cfg_, i, XR_VISIBILITY_MASK_TYPE_LINE_LOOP_KHR, &m)))
+            continue;
+        // Vertices lie on the view's z = -1 plane, i.e. they are Y-up tangents.
+        if (!idx.empty()) {
+            for (uint32_t k = 0; k < m.indexCountOutput; ++k)
+                if (idx[k] < v.size()) masks_[i].push_back({v[idx[k]].x, v[idx[k]].y});
+        } else {
+            for (const auto& p : v) masks_[i].push_back({p.x, p.y});
+        }
+    }
+}
+
+void XrApp::update_geometry(XrTime t) {
     XrViewLocateInfo li{XR_TYPE_VIEW_LOCATE_INFO};
     li.viewConfigurationType = view_cfg_;
     li.displayTime           = t;
     li.space                 = view_space_;
-
     XrViewState vs{XR_TYPE_VIEW_STATE};
     uint32_t count = 0;
-
-    // LOCAL-space views drive the world-locked grey background projection.
-    li.space = local_space_;
-    local_views_[0].type = local_views_[1].type = XR_TYPE_VIEW;
-    xrLocateViews(session_, &li, &vs, 2, &count, local_views_);
-
-    // VIEW-space views (eye offsets) drive the gaze geometry.
-    li.space = view_space_;
     views_[0].type = views_[1].type = XR_TYPE_VIEW;
-    if (!XR_SUCCEEDED(xrLocateViews(session_, &li, &vs, 2, &count, views_)) || count < 2)
-        return;
-    if (!(vs.viewStateFlags & XR_VIEW_STATE_POSITION_VALID_BIT) ||
-        !(vs.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT))
+    views_valid_ = false;
+    if (XR_FAILED(xrLocateViews(session_, &li, &vs, 2, &count, views_)) || count < 2) return;
+    if (!(vs.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT)) return;
+    views_valid_ = true;
+
+    auto differs = [](const XrView& a, const XrView& b) {
+        auto d = [](float x, float y) { return std::fabs(x - y) > 1e-4f; };
+        return d(a.fov.angleLeft, b.fov.angleLeft) || d(a.fov.angleRight, b.fov.angleRight) ||
+               d(a.fov.angleUp, b.fov.angleUp) || d(a.fov.angleDown, b.fov.angleDown) ||
+               d(a.pose.position.x, b.pose.position.x) || d(a.pose.position.y, b.pose.position.y) ||
+               d(a.pose.position.z, b.pose.position.z) ||
+               d(a.pose.orientation.x, b.pose.orientation.x) || d(a.pose.orientation.y, b.pose.orientation.y) ||
+               d(a.pose.orientation.z, b.pose.orientation.z) || d(a.pose.orientation.w, b.pose.orientation.w);
+    };
+    if (masks_dirty_) { load_visibility_masks(); have_geom_views_ = false; }
+    if (have_geom_views_ && !differs(views_[0], geom_views_[0]) && !differs(views_[1], geom_views_[1]))
         return;
 
-    if (compute_gaze_range(views_, cfg::OVERLAY_DIST, fov_cfg_, gaze_)) {
-        if (!gaze_logged_) {
-            gaze_logged_ = true;
-            for (int e = 0; e < 2; ++e)
-                std::cout << "[INFO] Eye " << (e ? "R" : "L") << ": fov up/down "
-                          << views_[e].fov.angleUp * 57.2957795f << "/"
-                          << views_[e].fov.angleDown * 57.2957795f << "°\n";
-            log_gaze_range(gaze_, fov_cfg_, cfg::OVERLAY_DIST);
-        }
-    } else if (!gaze_warned_) {
-        gaze_warned_ = true;
-        std::cout << "[WARN] Could not resolve eye frusta; using fallback gaze range\n";
+    EyeGeom eyes[2];
+    for (int e = 0; e < 2; ++e) {
+        const XrView& v = views_[e];
+        eyes[e].pose.p = {v.pose.position.x, v.pose.position.y, v.pose.position.z};
+        eyes[e].pose.q = {v.pose.orientation.x, v.pose.orientation.y, v.pose.orientation.z,
+                          v.pose.orientation.w};
+        if (!(vs.viewStateFlags & XR_VIEW_STATE_POSITION_VALID_BIT))
+            eyes[e].pose.p = {e ? 0.0315f : -0.0315f, 0.0f, 0.0f};
+        eyes[e].tan_left  = std::tan(v.fov.angleLeft);
+        eyes[e].tan_right = std::tan(v.fov.angleRight);
+        eyes[e].tan_up    = std::tan(v.fov.angleUp);
+        eyes[e].tan_down  = std::tan(v.fov.angleDown);
+        eyes[e].visible   = masks_[e];
     }
+    std::string notes;
+    ViewGeometry g;
+    geom_views_[0] = views_[0];
+    geom_views_[1] = views_[1];
+    have_geom_views_ = true;
+    if (!compute_view_geometry(eyes, cfg::OVERLAY_DIST, fov_cfg_, g, &notes)) {
+        if (!gaze_warned_) {
+            gaze_warned_ = true;
+            std::cout << "[WARN] Could not resolve eye frusta (" << notes << "); using fallback gaze range\n";
+        }
+        return;
+    }
+    const bool first = geom_.synthetic;
+    geom_ = g;
+    for (int e = 0; e < 2; ++e) log_eye(e ? "R" : "L", g.eyes[e]);
+    if (!notes.empty()) std::cout << "[INFO] Geometry: " << notes << "\n";
+    if (!first) std::cout << "[INFO] Headset geometry changed; targets follow the new range\n";
+    log_view_geometry(geom_, fov_cfg_, cfg::OVERLAY_DIST);
 }
 
-void XrApp::blit_into_swapchain(QuadSwapchain& sc, const Texture& tex) {
+bool XrApp::acquire(Swapchain& sc) {
     uint32_t idx = 0;
     XrSwapchainImageAcquireInfo ai{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-    xrAcquireSwapchainImage(sc.handle, &ai, &idx);
+    if (XR_FAILED(xrAcquireSwapchainImage(sc.handle, &ai, &idx))) return false;
     XrSwapchainImageWaitInfo wi{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
     wi.timeout = XR_INFINITE_DURATION;
-    xrWaitSwapchainImage(sc.handle, &wi);
+    if (XR_FAILED(xrWaitSwapchainImage(sc.handle, &wi))) return false;   // runtime is failing; frame errors follow
+    if (idx >= sc.images.size()) {
+        XrSwapchainImageReleaseInfo ri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+        xrReleaseSwapchainImage(sc.handle, &ri);
+        return false;
+    }
+    sc.acquired = idx;
+    return true;
+}
 
-    blit_texture(vk_, tex, sc.images[idx], sc.w, sc.h);
-
+void XrApp::release(Swapchain& sc) {
+    if (sc.acquired == UINT32_MAX) return;
     XrSwapchainImageReleaseInfo ri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
     xrReleaseSwapchainImage(sc.handle, &ri);
+    sc.acquired = UINT32_MAX;
 }
 
-// Opaque grey background filling the whole view, submitted behind the quads.
-void XrApp::render_background(std::vector<XrCompositionLayerBaseHeader*>& layers) {
-    for (int e = 0; e < 2; ++e) {
-        blit_into_swapchain(proj_sc_[e], grey_tex_);
-        proj_views_[e] = XrCompositionLayerProjectionView{
-            XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
-        proj_views_[e].pose                 = local_views_[e].pose;
-        proj_views_[e].fov                  = local_views_[e].fov;
-        proj_views_[e].subImage.swapchain   = proj_sc_[e].handle;
-        proj_views_[e].subImage.imageRect   = {{0, 0},
-            {(int32_t)proj_sc_[e].w, (int32_t)proj_sc_[e].h}};
-        proj_views_[e].subImage.imageArrayIndex = 0;
+bool XrApp::prepare_quad(VkCommandBuffer cmd, QuadLayer& q, const Quad& quad, const Image* img) {
+    if (!quad.visible || quad.alpha <= 0.002f || !img || img->w <= 0 ||
+        (uint32_t)img->w > q.tex.w || (uint32_t)img->h > q.tex.h)
+        return false;
+    // Quantised layer opacity, applied to the texture's alpha on the CPU (no
+    // reliance on per-layer colour-scale extensions, which runtimes vary on).
+    const float a = std::round(std::clamp(quad.alpha, 0.0f, 1.0f) * 128.0f) / 128.0f;
+    if (img->version != q.version || a != q.alpha) {
+        q.tex.stage(img->rgba.data(), (uint32_t)img->w, (uint32_t)img->h, a);
+        q.tex.record_upload(cmd, (uint32_t)img->w, (uint32_t)img->h);
+        q.version = img->version;
+        q.alpha = a;
+        q.cw = img->w;
+        q.ch = img->h;
     }
-    proj_layer_ = XrCompositionLayerProjection{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
-    proj_layer_.layerFlags = 0;              // opaque
-    proj_layer_.space      = local_space_;   // world-locked background
-    proj_layer_.viewCount  = 2;
-    proj_layer_.views      = proj_views_;
-    layers.push_back((XrCompositionLayerBaseHeader*)&proj_layer_);
-}
+    if (!acquire(q.sc)) return false;
+    record_blit(cmd, q.tex, (uint32_t)q.cw, (uint32_t)q.ch, q.sc.images[q.sc.acquired],
+                (uint32_t)q.cw, (uint32_t)q.ch,
+                (uint32_t)q.cw < q.sc.w || (uint32_t)q.ch < q.sc.h);
 
-void XrApp::render_quad(QuadSwapchain& sc, const Texture& tex,
-                        XrPosef pose, float w_m, float h_m,
-                        XrCompositionLayerQuad& layer) {
-    blit_into_swapchain(sc, tex);
-
-    layer = XrCompositionLayerQuad{XR_TYPE_COMPOSITION_LAYER_QUAD};
-    layer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT
-                     | XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT;
-    layer.space                  = view_space_;
-    layer.eyeVisibility          = XR_EYE_VISIBILITY_BOTH;
-    layer.subImage.swapchain     = sc.handle;
-    layer.subImage.imageRect     = {{0, 0}, {(int32_t)sc.w, (int32_t)sc.h}};
-    layer.subImage.imageArrayIndex = 0;
-    layer.pose                   = pose;
-    layer.size                   = {w_m, h_m};
+    q.layer = XrCompositionLayerQuad{XR_TYPE_COMPOSITION_LAYER_QUAD};
+    q.layer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT
+                       | XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT;
+    q.layer.space                    = view_space_;
+    q.layer.eyeVisibility            = XR_EYE_VISIBILITY_BOTH;
+    q.layer.subImage.swapchain       = q.sc.handle;
+    q.layer.subImage.imageRect       = {{0, 0}, {q.cw, q.ch}};
+    q.layer.subImage.imageArrayIndex = 0;
+    q.layer.pose                     = kIdentityPose;
+    q.layer.pose.position            = {quad.x, quad.y, quad.z};
+    if (quad.rot != 0.0f) {
+        const Quat r = quat_axis_angle({0.0f, 0.0f, 1.0f}, quad.rot);
+        q.layer.pose.orientation = {r.x, r.y, r.z, r.w};
+    }
+    q.layer.size                     = {quad.w, quad.h};
+    return true;
 }
 
 bool XrApp::poll_events() {
-    XrEventDataBuffer ev{XR_TYPE_EVENT_DATA_BUFFER};
     while (true) {
-        ev = XrEventDataBuffer{XR_TYPE_EVENT_DATA_BUFFER};
-        XrResult r = xrPollEvent(instance_, &ev);
-        if (r == XR_EVENT_UNAVAILABLE) break;
-        if (!XR_SUCCEEDED(r)) break;
+        XrEventDataBuffer ev{XR_TYPE_EVENT_DATA_BUFFER};
+        const XrResult r = xrPollEvent(instance_, &ev);
+        if (r != XR_SUCCESS) break;   // XR_EVENT_UNAVAILABLE or error
 
-        if (ev.type == XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING)
+        switch (ev.type) {
+        case XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING:
+            std::cout << "[WARN] OpenXR instance loss pending\n";
+            exiting_ = true;
             return false;
-        if (ev.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
+        case XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED: {
             auto* e = reinterpret_cast<XrEventDataSessionStateChanged*>(&ev);
             state_ = e->state;
             if (state_ == XR_SESSION_STATE_READY) {
                 XrSessionBeginInfo bi{XR_TYPE_SESSION_BEGIN_INFO};
                 bi.primaryViewConfigurationType = view_cfg_;
-                xrBeginSession(session_, &bi);
-                session_running_ = true;
+                if (xr_ok(xrBeginSession(session_, &bi), "xrBeginSession")) {
+                    session_running_ = true;
+                } else {
+                    exiting_ = true;
+                    return false;
+                }
             } else if (state_ == XR_SESSION_STATE_STOPPING) {
                 xrEndSession(session_);
                 session_running_ = false;
+                if (exit_requested_) { exiting_ = true; return false; }
             } else if (state_ == XR_SESSION_STATE_EXITING ||
                        state_ == XR_SESSION_STATE_LOSS_PENDING) {
+                exiting_ = true;
                 return false;
             }
+            break;
+        }
+        case XR_TYPE_EVENT_DATA_VISIBILITY_MASK_CHANGED_KHR:
+            masks_dirty_ = true;
+            break;
+        default:
+            break;
         }
     }
-    return true;
+    return !exiting_;
 }
 
-bool XrApp::frame(const std::function<Scene(double, const GazeRange&)>& update_cb) {
+bool XrApp::frame(const std::function<Frame(double, const ViewGeometry&)>& update_cb) {
+    if (exiting_) return false;
     if (!session_running_) {
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
         return true;
@@ -403,57 +497,104 @@ bool XrApp::frame(const std::function<Scene(double, const GazeRange&)>& update_c
 
     XrFrameWaitInfo fwi{XR_TYPE_FRAME_WAIT_INFO};
     XrFrameState fs{XR_TYPE_FRAME_STATE};
-    xrWaitFrame(session_, &fwi, &fs);
-
+    XrResult r = xrWaitFrame(session_, &fwi, &fs);
+    auto frame_failed = [&](const char* what) {
+        if (frame_errors_++ < 5) xr_ok(r, what);
+        if (fatal(r) || frame_errors_ > 300) return false;   // ~seconds of failures: give up
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        return true;
+    };
+    if (XR_FAILED(r)) return frame_failed("xrWaitFrame");
     XrFrameBeginInfo fbi{XR_TYPE_FRAME_BEGIN_INFO};
-    xrBeginFrame(session_, &fbi);
+    r = xrBeginFrame(session_, &fbi);
+    if (XR_FAILED(r)) return frame_failed("xrBeginFrame");
+    frame_errors_ = 0;
 
     double dt = prev_time_ ? (double)(fs.predictedDisplayTime - prev_time_) * 1e-9 : 0.0;
-    if (dt < 0.0) dt = 0.0;
-    if (dt > 0.1) dt = 0.1;
+    dt = std::clamp(dt, 0.0, 0.1);
     prev_time_ = fs.predictedDisplayTime;
 
     std::vector<XrCompositionLayerBaseHeader*> layers;
-    if (fs.shouldRender) {
-        locate_and_update_gaze(fs.predictedDisplayTime);
-        Scene scene = update_cb(dt, gaze_);
+    if (fs.shouldRender && update_cb) {
+        update_geometry(fs.predictedDisplayTime);
+        const Frame f = update_cb(dt, geom_);
 
-        if (scene.backdrop_gray != backdrop_gray_) {
-            backdrop_gray_ = scene.backdrop_gray;
-            std::vector<uint8_t> pixels((size_t)64 * 64 * 4);
-            for (size_t i = 0; i < pixels.size(); i += 4) {
-                pixels[i] = pixels[i + 1] = pixels[i + 2] = backdrop_gray_;
-                pixels[i + 3] = 255;
-            }
-            grey_tex_.upload(vk_, pixels.data());
+        VkCommandBuffer cmd = vk_.begin();
+        if (cmd == VK_NULL_HANDLE) {
+            // The GPU is gone: stop rather than keep emitting capture signals
+            // for targets that can no longer be shown.
+            XrFrameEndInfo fe{XR_TYPE_FRAME_END_INFO};
+            fe.displayTime = fs.predictedDisplayTime;
+            fe.environmentBlendMode = blend_;
+            xrEndFrame(session_, &fe);
+            return false;
         }
 
-        // Opaque grey background behind everything.
-        render_background(layers);
-
-        // Text first so the dot composites on top of it.
-        if (scene.text_visible && text_render_.ready()) {
-            if (scene.text != last_text_) {
-                last_text_ = scene.text;
-                text_render_.render(scene.text);
-                text_tex_.upload(vk_, text_render_.pixels());
+        // Opaque background. There is no game behind a scene session, so the
+        // backdrop "fade" is a fade from/to black.
+        const int level = (int)std::lround(f.backdrop_gray * std::clamp(f.backdrop_alpha, 0.0f, 1.0f));
+        if (level != grey_level_) {
+            uint8_t px[4 * 4 * 4];
+            for (int i = 0; i < 16; ++i) {
+                px[i * 4 + 0] = px[i * 4 + 1] = px[i * 4 + 2] = (uint8_t)level;
+                px[i * 4 + 3] = 255;
             }
-            const float wm = 2.25f;
-            const float hm = wm * ((float)text_sc_.h / (float)text_sc_.w);
-            XrPosef p = kIdentityPose;
-            const float text_scale = cfg::TEXT_DIST / cfg::OVERLAY_DIST;
-            p.position = {gaze_.center_x * text_scale,
-                          (gaze_.center_y - 0.825f) * text_scale,
-                          -cfg::TEXT_DIST};
-            render_quad(text_sc_, text_tex_, p, wm, hm, text_layer_);
-            layers.push_back((XrCompositionLayerBaseHeader*)&text_layer_);
+            grey_tex_.stage(px, 4, 4);
+            grey_tex_.record_upload(cmd, 4, 4);
+            grey_level_ = level;
         }
-        if (scene.dot_visible) {
-            const float hm = scene.dot_size * ((float)dot_h_ / (float)dot_w_);
-            XrPosef p = kIdentityPose;
-            p.position = {scene.dot_x, scene.dot_y, -cfg::OVERLAY_DIST};
-            render_quad(dot_sc_, dot_tex_, p, scene.dot_size, hm, dot_layer_);
-            layers.push_back((XrCompositionLayerBaseHeader*)&dot_layer_);
+        bool bg_ok = views_valid_;
+        for (int e = 0; e < 2 && bg_ok; ++e) {
+            bg_ok = acquire(proj_sc_[e]);
+            if (bg_ok)
+                record_blit(cmd, grey_tex_, 4, 4, proj_sc_[e].images[proj_sc_[e].acquired],
+                            proj_sc_[e].w, proj_sc_[e].h);
+        }
+        const bool panel_ok = prepare_quad(cmd, panel_, f.panel, f.panel_image);
+        const bool ring_ok  = prepare_quad(cmd, ring_, f.ring, &sprites::ring());
+        const bool trail_ok = prepare_quad(cmd, trail_, f.trail, &sprites::trail());
+        const bool dot_ok   = prepare_quad(cmd, dot_, f.dot, &sprites::dot());
+
+        const bool gpu_ok = vk_.submit_wait();
+        for (auto* sc : {&proj_sc_[0], &proj_sc_[1], &panel_.sc, &ring_.sc, &trail_.sc, &dot_.sc})
+            release(*sc);
+        if (!gpu_ok) {
+            // Uploads recorded this frame never happened: force them again.
+            grey_level_ = -1;
+            for (auto* q : {&panel_, &ring_, &trail_, &dot_}) q->version = ~0ull;
+            if (++gpu_failures_ >= 3) {
+                std::cout << "[ERROR] Repeated GPU failures; stopping the calibration\n";
+                XrFrameEndInfo fe{XR_TYPE_FRAME_END_INFO};
+                fe.displayTime = fs.predictedDisplayTime;
+                fe.environmentBlendMode = blend_;
+                xrEndFrame(session_, &fe);
+                return false;
+            }
+        } else {
+            gpu_failures_ = 0;
+        }
+
+        if (gpu_ok) {
+            if (bg_ok) {
+                for (int e = 0; e < 2; ++e) {
+                    proj_views_[e] = XrCompositionLayerProjectionView{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
+                    proj_views_[e].pose = views_[e].pose;
+                    proj_views_[e].fov  = views_[e].fov;
+                    proj_views_[e].subImage.swapchain = proj_sc_[e].handle;
+                    proj_views_[e].subImage.imageRect = {{0, 0}, {(int32_t)proj_sc_[e].w, (int32_t)proj_sc_[e].h}};
+                    proj_views_[e].subImage.imageArrayIndex = 0;
+                }
+                proj_layer_ = XrCompositionLayerProjection{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
+                proj_layer_.layerFlags = 0;   // opaque
+                proj_layer_.space      = view_space_;
+                proj_layer_.viewCount  = 2;
+                proj_layer_.views      = proj_views_;
+                layers.push_back((XrCompositionLayerBaseHeader*)&proj_layer_);
+            }
+            if (panel_ok) layers.push_back((XrCompositionLayerBaseHeader*)&panel_.layer);
+            if (ring_ok)  layers.push_back((XrCompositionLayerBaseHeader*)&ring_.layer);
+            if (trail_ok) layers.push_back((XrCompositionLayerBaseHeader*)&trail_.layer);
+            if (dot_ok)   layers.push_back((XrCompositionLayerBaseHeader*)&dot_.layer);
         }
     }
 
@@ -462,37 +603,46 @@ bool XrApp::frame(const std::function<Scene(double, const GazeRange&)>& update_c
     fei.environmentBlendMode = blend_;
     fei.layerCount           = (uint32_t)layers.size();
     fei.layers               = layers.data();
-    XrResult er = xrEndFrame(session_, &fei);
-    if (!XR_SUCCEEDED(er)) {
-        static bool logged = false;
-        if (!logged) { logged = true;
-            std::cout << "[ERROR] xrEndFrame failed (XrResult " << (int)er
+    r = xrEndFrame(session_, &fei);
+    if (XR_FAILED(r)) {
+        if (end_frame_errors_++ == 0)
+            std::cout << "[ERROR] xrEndFrame failed (XrResult " << (int)r
                       << ") — layers may be rejected by this runtime\n";
-        }
+        if (fatal(r)) return false;
     }
     return true;
 }
 
 void XrApp::shutdown() {
+    // End the session the way the spec asks (request exit, keep the frame loop
+    // alive until STOPPING) so runtimes return cleanly to their home/idle state.
+    if (session_ && session_running_ && !exiting_) {
+        exit_requested_ = true;
+        if (XR_SUCCEEDED(xrRequestExitSession(session_))) {
+            const double deadline = now_s() + 1.5;
+            while (session_running_ && now_s() < deadline) {
+                if (!poll_events()) break;
+                if (session_running_ && !frame({})) break;
+            }
+        }
+    }
+
     if (vk_.device) vkDeviceWaitIdle(vk_.device);
 
-    if (dot_sc_.handle)  xrDestroySwapchain(dot_sc_.handle);
-    if (text_sc_.handle) xrDestroySwapchain(text_sc_.handle);
-    for (auto& sc : proj_sc_) if (sc.handle) xrDestroySwapchain(sc.handle);
+    for (auto* sc : {&dot_.sc, &ring_.sc, &trail_.sc, &panel_.sc, &proj_sc_[0], &proj_sc_[1]})
+        if (sc->handle) { xrDestroySwapchain(sc->handle); sc->handle = XR_NULL_HANDLE; }
     if (vk_.device) {
-        dot_tex_.destroy(vk_);
-        text_tex_.destroy(vk_);
+        dot_.tex.destroy(vk_);
+        ring_.tex.destroy(vk_);
+        trail_.tex.destroy(vk_);
+        panel_.tex.destroy(vk_);
         grey_tex_.destroy(vk_);
+        vk_.destroy();
     }
-    vk_.destroy();
 
-    if (view_space_)  xrDestroySpace(view_space_);
-    if (local_space_) xrDestroySpace(local_space_);
-    if (session_)    xrDestroySession(session_);
-    if (vk_.device)   vkDestroyDevice(vk_.device, nullptr);
-    if (vk_.instance) vkDestroyInstance(vk_.instance, nullptr);
-    if (instance_)   xrDestroyInstance(instance_);
-
-    instance_ = XR_NULL_HANDLE;
-    session_  = XR_NULL_HANDLE;
+    if (view_space_)  { xrDestroySpace(view_space_); view_space_ = XR_NULL_HANDLE; }
+    if (session_)     { xrDestroySession(session_); session_ = XR_NULL_HANDLE; }
+    if (vk_.device)   { vkDestroyDevice(vk_.device, nullptr); vk_.device = VK_NULL_HANDLE; }
+    if (vk_.instance) { vkDestroyInstance(vk_.instance, nullptr); vk_.instance = VK_NULL_HANDLE; }
+    if (instance_)    { xrDestroyInstance(instance_); instance_ = XR_NULL_HANDLE; }
 }

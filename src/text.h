@@ -1,35 +1,65 @@
 #pragma once
-#include <cstdint>
+#include "frame.h"
+#include "scene.h"
+
+#include <memory>
 #include <string>
 #include <vector>
 
-// ── Text rasteriser ───────────────────────────────────────────────────────────
+// ── Instruction panel rasteriser ──────────────────────────────────────────────
 //
-// Replaces the GDI update_text() from the OpenVR build with a portable
-// stb_truetype implementation. Produces a fixed-size RGBA texture with the
-// supplied string word-wrapped and centred — white glyphs on the same dark
-// translucent panel as the original (RGB 15,15,25, alpha 230).
+// Portable stb_truetype implementation. Renders a compact, content-sized panel:
+// rounded dark card with a soft shadow, a bold title (first line), a lighter
+// subtitle (remaining lines), and optional progress pips or bar. Text is UTF-8;
+// glyphs missing from the bundled font are looked up in system fallback fonts
+// (loaded lazily) so translated strings do not render as garbage.
+
+struct PanelContent {
+    std::string text;            // '\n'-separated; first line is the title
+    Tone        tone = Tone::Normal;
+    int         pips_total = 0;  // > 0: pip row
+    int         pips_done  = 0;
+    float       bar = -1.0f;     // >= 0 (and no pips): progress bar fraction
+
+    bool operator==(const PanelContent& o) const {
+        return text == o.text && tone == o.tone && pips_total == o.pips_total &&
+               pips_done == o.pips_done && bar == o.bar;
+    }
+    bool operator!=(const PanelContent& o) const { return !(*this == o); }
+};
 
 class TextRenderer {
 public:
-    // Load a .ttf and allocate the RGBA target. Returns false on failure.
-    bool load(const char* ttf_path, int tex_w, int tex_h, float pixel_height = 52.0f);
+    // Panel texels per metre on the overlay plane (≈34 px/deg at 3 m, roughly
+    // the angular resolution of current high-end headsets).
+    static constexpr float kPixelsPerMetre = 640.0f;
+    // Transparent margin around the card that holds its shadow.
+    static constexpr int   kShadowPad = 24;
+    // Hard limits so a swapchain/overlay sized once always fits.
+    static constexpr int   kMaxWidth  = 1088;
+    static constexpr int   kMaxHeight = 576;
 
-    // Rasterise `text` (ASCII; honours embedded '\n') into the internal buffer.
-    void render(const std::string& text);
+    TextRenderer();
+    ~TextRenderer();
+    TextRenderer(const TextRenderer&) = delete;
+    TextRenderer& operator=(const TextRenderer&) = delete;
 
-    const uint8_t* pixels() const { return pixels_.data(); }
-    int width()  const { return w_; }
-    int height() const { return h_; }
-    bool ready() const { return !font_data_.empty(); }
+    // Load the primary font; `fallbacks` are only opened if a glyph is missing.
+    bool load(const std::string& primary_ttf, const std::vector<std::string>& fallbacks = {});
+    bool ready() const;
+
+    // Rasterise the panel into `out` (resized to fit, version bumped). The card
+    // body is limited to max_body_px wide; text wraps within it.
+    void render_panel(const PanelContent& content, int max_body_px, Image& out);
 
 private:
-    int measure_run(const char* s, int len, float scale) const;
-
-    std::vector<uint8_t> font_data_;
-    std::vector<uint8_t> pixels_;
-    int   w_ = 0, h_ = 0;
-    float px_height_ = 52.0f;
-    // Opaque stbtt_fontinfo kept as bytes to avoid leaking stb into the header.
-    std::vector<uint8_t> font_info_;
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 };
+
+// UTF-8 → code points; malformed sequences become U+FFFD.
+std::u32string decode_utf8(const std::string& s);
+
+// Normalise instruction text: drop control characters (keeping '\n'), trim
+// each line, drop empty lines, capitalise each line's first letter.
+std::string normalize_instruction(const std::string& s);

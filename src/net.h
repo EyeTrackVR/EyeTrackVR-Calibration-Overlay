@@ -6,12 +6,13 @@
 // Replaces the winsock-specific glue from the OpenVR build. The wire protocol is
 // unchanged: big-endian int32 signals are sent to 127.0.0.1:PORT_SIGNAL and
 // commands are received on PORT_CMD. recv is non-blocking so it can be polled
-// once per render frame.
+// once per render frame. send_int32/recv are virtual so tests can substitute an
+// in-memory transport.
 
 class UdpNet {
 public:
     UdpNet() = default;
-    ~UdpNet();
+    virtual ~UdpNet();
 
     UdpNet(const UdpNet&)            = delete;
     UdpNet& operator=(const UdpNet&) = delete;
@@ -19,17 +20,19 @@ public:
     // Create the send socket targeting 127.0.0.1:send_port. Returns false on error.
     bool init_send(uint16_t send_port);
 
-    // Create and bind a non-blocking recv socket on 127.0.0.1:recv_port. Optional
-    // (only interactive mode listens for commands). Returns false on error.
-    bool init_recv(uint16_t recv_port);
+    // Create and bind a non-blocking recv socket on 127.0.0.1:recv_port. The
+    // port is bound exclusively: if a leftover overlay instance still holds it,
+    // that instance is asked to quit (command 200) and the bind is retried for
+    // up to `wait_s` seconds. Returns false on error.
+    bool init_recv(uint16_t recv_port, double wait_s = 3.0);
 
     // Send a big-endian int32 signal.
-    void send_int32(int32_t v);
+    virtual void send_int32(int32_t v);
 
     // Non-blocking receive into buf. Returns the datagram length, 0 if none is
     // available, or -1 on a hard error. Safe to call even if init_recv() was
     // never called (always returns 0).
-    int recv(void* buf, int buflen);
+    virtual int recv(void* buf, int buflen);
 
     void close();
 
