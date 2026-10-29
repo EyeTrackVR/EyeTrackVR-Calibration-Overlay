@@ -30,9 +30,9 @@ public:
 
     // Render one frame. When the runtime wants this frame rendered,
     // update_cb(dt, geometry) is called between begin/end to obtain the frame;
-    // dt is seconds since the previous rendered frame. While hidden the
-    // callback is skipped (the calibration pauses). Returns false if the loop
-    // should stop.
+    // dt is seconds since the previous rendered frame. While hidden, untracked
+    // or unfocused the callback is skipped (the calibration pauses). Returns
+    // false if the loop should stop.
     bool frame(const std::function<Frame(double dt, const ViewGeometry&)>& update_cb) override;
 
 private:

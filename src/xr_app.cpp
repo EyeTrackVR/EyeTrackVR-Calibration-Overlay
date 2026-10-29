@@ -535,8 +535,12 @@ bool XrApp::frame(const std::function<Frame(double, const ViewGeometry&)>& updat
     prev_time_ = fs.predictedDisplayTime;
 
     std::vector<XrCompositionLayerBaseHeader*> layers;
-    if (fs.shouldRender && update_cb) {
-        update_geometry(fs.predictedDisplayTime);
+    if (fs.shouldRender && update_cb) update_geometry(fs.predictedDisplayTime);
+    // Pause the calibration while its target can't be seen: no tracked view, or
+    // a normal session that another app has taken focus from. Capture signals
+    // would otherwise fire for dots the user never saw.
+    const bool can_see = views_valid_ && (has_overlay_ || state_ == XR_SESSION_STATE_FOCUSED);
+    if (fs.shouldRender && update_cb && can_see) {
         const Frame f = update_cb(dt, geom_);
 
         VkCommandBuffer cmd = vk_.begin();
