@@ -268,8 +268,11 @@ int main(int argc, char** argv) {
     // to it. Fall back to a focused OpenXR session otherwise (e.g. a native
     // Virtual Desktop / standalone OpenXR runtime, where nothing is evicted).
     //   --backend=openvr   force the OpenVR overlay backend (errors if no SteamVR)
-    //   --backend=openxr   force the OpenXR backend (note: evicts the running game)
+    //   --backend=openxr   force the OpenXR backend (note: evicts the running game,
+    //                      unless the runtime supports overlay sessions)
     //   --backend=sim      headless simulator (tests, layout previews)
+    // On Linux, OpenVR is often xrizer/OpenComposite with incomplete overlay
+    // support, so an OpenXR runtime with overlay sessions is tried first there.
     std::unique_ptr<IOverlayBackend> app;
 
     if (backend_arg == "sim") {
@@ -277,6 +280,23 @@ int main(int argc, char** argv) {
         if (!s->init(fov)) return 1;
         app = std::move(s);
     }
+
+#ifndef _WIN32
+    // Before the overlay check, so that it checks this runtime.
+    if (!runtime_arg.empty() && runtime_arg != "keep") {
+        setenv("XR_RUNTIME_JSON", runtime_arg.c_str(), 1);
+        std::cout << "[INFO] Using OpenXR runtime: " << runtime_arg << "\n";
+    }
+    if (!app && (backend_arg.empty() || backend_arg == "auto") && XrApp::runtime_supports_overlay()) {
+        std::cout << "[INFO] The OpenXR runtime supports overlay sessions; using the OpenXR backend\n";
+        auto xr = std::make_unique<XrApp>();
+        if (xr->init(fov)) {
+            app = std::move(xr);
+        } else {
+            xr->shutdown();
+        }
+    }
+#endif
 
     if (!app && backend_arg != "openxr") {
         auto ovr = std::make_unique<OvrApp>();
@@ -325,11 +345,6 @@ int main(int argc, char** argv) {
             }
         } else {
             std::cout << "[INFO] Using the system's active OpenXR runtime\n";
-        }
-#else
-        if (!runtime_arg.empty() && runtime_arg != "keep") {
-            setenv("XR_RUNTIME_JSON", runtime_arg.c_str(), 1);
-            std::cout << "[INFO] Using OpenXR runtime: " << runtime_arg << "\n";
         }
 #endif
         auto xr = std::make_unique<XrApp>();
