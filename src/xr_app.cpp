@@ -53,6 +53,7 @@ bool XrApp::create_instance() {
     for (const auto& p : props) {
         if (!std::strcmp(p.extensionName, XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME)) has_vk2 = true;
         if (!std::strcmp(p.extensionName, XR_KHR_VISIBILITY_MASK_EXTENSION_NAME)) has_visibility_mask_ = true;
+        if (!std::strcmp(p.extensionName, XR_EXTX_OVERLAY_EXTENSION_NAME)) has_overlay_ = true;
     }
     if (!has_vk2 && n > 0) {
         std::cout << "[ERROR] The active OpenXR runtime does not support XR_KHR_vulkan_enable2\n";
@@ -60,6 +61,7 @@ bool XrApp::create_instance() {
     }
     std::vector<const char*> exts = {XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME};
     if (has_visibility_mask_) exts.push_back(XR_KHR_VISIBILITY_MASK_EXTENSION_NAME);
+    if (has_overlay_) exts.push_back(XR_EXTX_OVERLAY_EXTENSION_NAME);
 
     XrInstanceCreateInfo ci{XR_TYPE_INSTANCE_CREATE_INFO};
     std::strncpy(ci.applicationInfo.applicationName, "EyeTrackVR Calibration",
@@ -81,7 +83,8 @@ bool XrApp::create_instance() {
         std::cout << "[INFO] OpenXR runtime: " << ip.runtimeName << " "
                   << XR_VERSION_MAJOR(ip.runtimeVersion) << "." << XR_VERSION_MINOR(ip.runtimeVersion)
                   << "." << XR_VERSION_PATCH(ip.runtimeVersion)
-                  << (has_visibility_mask_ ? " (visibility mask supported)" : "") << "\n";
+                  << (has_visibility_mask_ ? " (visibility mask supported)" : "")
+                  << (has_overlay_ ? " (overlay session)" : "") << "\n";
 
     XrSystemGetInfo si{XR_TYPE_SYSTEM_GET_INFO};
     si.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
@@ -209,8 +212,14 @@ bool XrApp::create_session() {
     gb.queueFamilyIndex = vk_.queue_family;
     gb.queueIndex       = 0;
 
+    // Higher placements draw on top. Stay above other overlay apps during the
+    // calibration (WayVR uses 5 and draws a skybox when no app is running).
+    XrSessionCreateInfoOverlayEXTX overlay{XR_TYPE_SESSION_CREATE_INFO_OVERLAY_EXTX};
+    overlay.next                   = &gb;
+    overlay.sessionLayersPlacement = 100;
+
     XrSessionCreateInfo sci{XR_TYPE_SESSION_CREATE_INFO};
-    sci.next     = &gb;
+    sci.next     = has_overlay_ ? static_cast<const void*>(&overlay) : &gb;
     sci.systemId = system_;
     if (!xr_ok(xrCreateSession(instance_, &sci, &session_), "xrCreateSession"))
         return false;

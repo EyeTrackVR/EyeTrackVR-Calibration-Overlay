@@ -16,6 +16,7 @@
 // NOTE: a focused OpenXR session becomes the runtime's scene application. On
 // SteamVR that evicts any running game, so the OpenVR overlay backend (OvrApp)
 // is preferred there; this backend is used for runtimes where that is fine.
+// With XR_EXTX_overlay (e.g. Monado) it runs as an overlay session instead.
 class XrApp : public IOverlayBackend {
 public:
     bool init(const FovConfig& fov_cfg) override;
@@ -78,6 +79,7 @@ private:
 
     // Extensions
     bool has_visibility_mask_ = false;
+    bool has_overlay_         = false;
     PFN_xrGetVulkanGraphicsRequirements2KHR pfnGetReqs_    = nullptr;
     PFN_xrCreateVulkanInstanceKHR           pfnCreateInst_ = nullptr;
     PFN_xrGetVulkanGraphicsDevice2KHR       pfnGetDevice_  = nullptr;
