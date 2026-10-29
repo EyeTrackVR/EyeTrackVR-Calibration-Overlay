@@ -13,7 +13,7 @@ Requires CMake ≥ 3.21, C++20, vcpkg (Windows) or system packages (Linux, see `
 ```sh
 cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake
 cmake --build build --config Release
-ctest --test-dir build -C Release --output-on-failure     # unit + protocol tests, no headset needed
+ctest --test-dir build -C Release -j --output-on-failure  # unit + protocol tests, no headset needed
 ```
 
 `build/` (VS 2022) and `build-release/` exist and are configured. Core sources are globbed (`CONFIGURE_DEPENDS`) into the `etvr_core` static lib; the VR backends + `main.cpp` are listed explicitly in CMakeLists.txt. Run the binary from its output directory (`build/Release/EyeTrackVR-Overlay.exe`); post-build copies the font to `assets/` and the DLLs. Linux is verified in WSL `Ubuntu-22.04` (GCC 11, OpenXR 1.0.20 headers — stay within that API): `cmake -S . -B /root/etvr-build -G Ninja && cmake --build /root/etvr-build && (cd /root/etvr-build && ctest)`. Note `$?` does not survive the Git-Bash → wsl.exe hop; check exit codes inside Linux.
@@ -45,4 +45,4 @@ Pipeline per frame: **mode → `Scene` → Presenter → `Frame` → backend**, 
 - **Localisation** (`src/i18n.cpp`): built-in instruction text for every language in the app's `EyeTrackApp/lang/*.toml` (en, de, es, ja, zh), chosen by `--lang`. In interactive mode the app sends its own translated card text (50) *before* each voice prompt; pass/centre commands keep text that is already up instead of replacing it. Adding an app language: add a catalog here too (the app's `tests/test_overlay_localization.py` checks `--list-langs`).
 - **Platform** (`src/platform.cpp`): exe dir, Ctrl+C/SIGTERM → graceful outro (second signal exits immediately), parent-process watchdog (interactive mode closes if the app dies), fallback fonts. `src/net.cpp`: exclusive bind of the command port, asks a leftover instance to quit (200) and retries.
 
-Tests: `tests/tests.cpp` (unit; layout invariants run every mode × every sim headset × several cap configs) and `tests/protocol_test.py` (real exe over UDP).
+Tests: `tests/tests.cpp` (unit; layout invariants run every mode × every sim headset × several cap configs) and `tests/protocol_test.py` (real exe over UDP). CTest registers each unit suite and layout shard separately (`etvr_tests <suite> [shard/shards]`; no arguments runs everything).

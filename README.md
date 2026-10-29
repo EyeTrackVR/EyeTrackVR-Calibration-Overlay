@@ -138,10 +138,11 @@ are needed. Text uses Open Sans, falling back to system fonts for glyphs it lack
 ### Tests
 
 ```sh
-ctest --test-dir build -C Release --output-on-failure
+ctest --test-dir build -C Release -j --output-on-failure
 ```
 
-- `unit` (`tests/tests.cpp`): geometry/visibility across synthetic headsets and
+- `unit.*` (`tests/tests.cpp`, one test per suite plus shards of the layout
+  sweep): geometry/visibility across synthetic headsets and
   cap configurations, exact signal order and timing of every mode, the
   interactive command protocol (including recovery paths), presenter layout
   invariants (the card never covers a target, never appears during a capture, is

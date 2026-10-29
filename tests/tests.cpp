@@ -584,14 +584,17 @@ static void layout_run(const std::string& mode_name, const ViewGeometry& vg, Tex
     CHECKM(mode->finished(), "%s did not finish", tag.c_str());
 }
 
-static void test_layout() {
-    std::printf("layout\n");
+// Runs every shard-th headset/config/mode combination starting at `shard`.
+static void test_layout(int shard, int shards) {
+    std::printf("layout %d/%d\n", shard, shards);
     TextRenderer tr;
     CHECK(tr.load(ETVR_FONT));
+    int index = 0;
     for (const auto& hmd : sim_hmd_names()) {
         for (const auto& c : configs()) {
             const ViewGeometry vg = geometry(hmd, c.f);
             for (const char* m : {"finetune", "datacollect", "ellipse", "interactive", "9point", "center"}) {
+                if (index++ % shards != shard) continue;
                 LayoutStats st;
                 const std::string tag = hmd + "/" + c.name + "/" + m;
                 layout_run(m, vg, tr, st, tag, 11);
@@ -680,15 +683,29 @@ static void test_i18n() {
     CHECK(std::string(i18n::tr(i18n::Str::FollowTitle)) == "Follow the dot");
 }
 
-int main() {
-    test_i18n();
-    test_text();
-    test_geometry();
+// etvr_tests [suite [shard/shards]]: no suite runs everything; CTest runs one
+// suite (or one layout shard) per test so they spread over the cores.
+int main(int argc, char** argv) {
+    const std::string only = argc > 1 ? argv[1] : "";
+    int shard = 0, shards = 1;
+    if (argc > 2 && (std::sscanf(argv[2], "%d/%d", &shard, &shards) != 2 || shards < 1 || shard < 0 || shard >= shards)) {
+        std::printf("bad shard '%s', expected i/n\n", argv[2]);
+        return 2;
+    }
+    bool ran = false;
+    auto want = [&](const char* name) { const bool w = only.empty() || only == name; ran |= w; return w; };
     const GazeRange g = geometry("beyond2", configs()[1].f).gaze;
-    test_modes(g);
-    test_interactive(g);
-    test_layout();
-    test_session();
+    if (want("i18n")) test_i18n();
+    if (want("text")) test_text();
+    if (want("geometry")) test_geometry();
+    if (want("modes")) test_modes(g);
+    if (want("interactive")) test_interactive(g);
+    if (want("layout")) test_layout(shard, shards);
+    if (want("session")) test_session();
+    if (!ran) {
+        std::printf("unknown suite '%s'\n", only.c_str());
+        return 2;
+    }
     std::printf("\n%d checks, %d failed\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }
