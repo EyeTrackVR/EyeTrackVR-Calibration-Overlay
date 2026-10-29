@@ -19,6 +19,9 @@
 // With XR_EXTX_overlay (e.g. Monado) it runs as an overlay session instead.
 class XrApp : public IOverlayBackend {
 public:
+    // Only reads the runtime's extension list and does not start a session.
+    static bool runtime_supports_overlay();
+
     bool init(const FovConfig& fov_cfg) override;
     void shutdown() override;
 

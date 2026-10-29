@@ -24,7 +24,7 @@ startup:
   standalone runtimes, Monado, etc.), where a focused session evicts nothing. The
   target/panel are head-locked `XrCompositionLayerQuad` layers over an opaque grey
   projection background. With `XR_EXTX_overlay` (e.g. Monado) it runs as an
-  overlay session on top of the running app.
+  overlay session on top of the running app, and on Linux it is tried before OpenVR.
 - **Simulator** (`src/sim_app.cpp`, `--backend=sim`) — headless software renderer
   with a synthetic headset. Runs the full session and UDP protocol without VR
   hardware and can dump what each eye sees as PNGs. Used by the tests and for

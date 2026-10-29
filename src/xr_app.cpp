@@ -32,6 +32,17 @@ double now_s() {
 
 } // namespace
 
+bool XrApp::runtime_supports_overlay() {
+    uint32_t n = 0;
+    xrEnumerateInstanceExtensionProperties(nullptr, 0, &n, nullptr);
+    std::vector<XrExtensionProperties> props(n, {XR_TYPE_EXTENSION_PROPERTIES});
+    if (n) xrEnumerateInstanceExtensionProperties(nullptr, n, &n, props.data());
+    for (const auto& p : props) {
+        if (!std::strcmp(p.extensionName, XR_EXTX_OVERLAY_EXTENSION_NAME)) return true;
+    }
+    return false;
+}
+
 bool XrApp::init(const FovConfig& fov_cfg) {
     fov_cfg_ = fov_cfg;
     geom_ = fallback_view_geometry(fov_cfg_, cfg::OVERLAY_DIST);
