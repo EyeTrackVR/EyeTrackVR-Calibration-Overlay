@@ -1,0 +1,73 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Oldest supported toolchain: GCC 11 and OpenXR 1.0.20.
+          - name: Linux x64
+            os: ubuntu-22.04
+            openvr: linux64
+          - name: Linux arm64
+            os: ubuntu-24.04-arm
+            openvr: linuxarm64
+          - name: Windows x64
+            os: windows-2025
+            openvr: win64
+            cmake-args: -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+          - name: Linux x64 sanitizers
+            os: ubuntu-24.04
+            openvr: linux64
+            cmake-args: -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_CXX_FLAGS=-fsanitize=address,undefined
+    defaults:
+      run:
+        shell: bash
+    env:
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+      VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/vcpkg-cache,readwrite
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: .github/scripts/fetch-openvr.sh ${{ matrix.openvr }}
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update -q && sudo apt-get install -q -y --no-install-recommends libopenxr-dev libvulkan-dev libstb-dev
+      - if: runner.os == 'Windows'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: vcpkg-cache
+          key: vcpkg-${{ hashFiles('vcpkg.json') }}
+      - if: runner.os == 'Windows'
+        uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2 # v11.6
+        with:
+          vcpkgJsonGlob: vcpkg.json
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_COMPILE_WARNING_AS_ERROR=ON ${{ matrix.cmake-args }}
+      - run: cmake --build build --config Release --parallel
+      - run: ctest --test-dir build -C Release --output-on-failure --parallel
+
+  # The one check for branch protection to require.
+  all-checks:
+    name: Build passed
+    if: always()
+    needs: [build]
+    runs-on: ubuntu-24.04
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

@@ -2,6 +2,7 @@
   "name": "eyetrackvr-overlay",
   "version-string": "0.4.0",
   "description": "Cross-platform OpenXR/Vulkan eye-tracking calibration overlay",
+  "builtin-baseline": "9eec002df1cd109f8f104cd966a763daf9751489",
   "dependencies": [
     "openxr-loader",
     "vulkan-headers",
