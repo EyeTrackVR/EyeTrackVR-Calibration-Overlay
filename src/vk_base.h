@@ -12,16 +12,16 @@
 // frame's uploads and blits into a single submit.
 
 struct VkContext {
-    VkInstance       instance      = VK_NULL_HANDLE;
-    VkPhysicalDevice phys          = VK_NULL_HANDLE;
-    VkDevice         device        = VK_NULL_HANDLE;
-    VkQueue          queue         = VK_NULL_HANDLE;
-    uint32_t         queue_family  = 0;
-    VkCommandPool    cmd_pool      = VK_NULL_HANDLE;
-    VkCommandBuffer  cmd           = VK_NULL_HANDLE;
-    VkFence          fence         = VK_NULL_HANDLE;
+    VkInstance instance = VK_NULL_HANDLE;
+    VkPhysicalDevice phys = VK_NULL_HANDLE;
+    VkDevice device = VK_NULL_HANDLE;
+    VkQueue queue = VK_NULL_HANDLE;
+    uint32_t queue_family = 0;
+    VkCommandPool cmd_pool = VK_NULL_HANDLE;
+    VkCommandBuffer cmd = VK_NULL_HANDLE;
+    VkFence fence = VK_NULL_HANDLE;
 
-    bool init_pool();   // after device + queue are populated
+    bool init_pool();  // after device + queue are populated
     // Begin recording the frame's command buffer (waits for the previous one).
     // Returns VK_NULL_HANDLE if the GPU is hung or lost.
     VkCommandBuffer begin();
@@ -33,12 +33,12 @@ struct VkContext {
 // An RGBA8 (SRGB) texture kept in TRANSFER_SRC layout, blit-able into swapchains.
 // The persistent staging buffer is reused for every re-upload.
 struct Texture {
-    VkImage        image       = VK_NULL_HANDLE;
-    VkDeviceMemory mem         = VK_NULL_HANDLE;
-    VkBuffer       staging     = VK_NULL_HANDLE;
+    VkImage image = VK_NULL_HANDLE;
+    VkDeviceMemory mem = VK_NULL_HANDLE;
+    VkBuffer staging = VK_NULL_HANDLE;
     VkDeviceMemory staging_mem = VK_NULL_HANDLE;
-    void*          staging_ptr = nullptr;
-    uint32_t       w = 0, h = 0;
+    void* staging_ptr = nullptr;
+    uint32_t w = 0, h = 0;
 
     bool create(VkContext& c, uint32_t w, uint32_t h);
     // Copy a sw x sh straight-alpha RGBA image into staging, multiplying its
@@ -53,5 +53,5 @@ struct Texture {
 // leaving dst in COLOR_ATTACHMENT_OPTIMAL as the runtime expects at release.
 // When clear_dst is set the rest of dst is cleared to transparent first, so a
 // sub-rectangle quad never samples stale texels at its border.
-void record_blit(VkCommandBuffer cmd, const Texture& src, uint32_t sw, uint32_t sh,
-                 VkImage dst, uint32_t dw, uint32_t dh, bool clear_dst = false);
+void record_blit(VkCommandBuffer cmd, const Texture& src, uint32_t sw, uint32_t sh, VkImage dst, uint32_t dw,
+                 uint32_t dh, bool clear_dst = false);

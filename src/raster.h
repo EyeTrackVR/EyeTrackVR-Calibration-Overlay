@@ -11,19 +11,20 @@
 
 namespace raster {
 
-struct Rgba { float r, g, b, a; };   // 0..255 colour, 0..1 alpha
+struct Rgba {
+    float r, g, b, a;
+};  // 0..255 colour, 0..1 alpha
 
 inline float clamp01(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
 inline float smoothstep(float e0, float e1, float x) {
     const float t = clamp01((x - e0) / (e1 - e0));
     return t * t * (3.0f - 2.0f * t);
 }
-inline Rgba hex(uint32_t rgb, float a = 1.0f) {
+constexpr Rgba hex(uint32_t rgb, float a = 1.0f) {
     return {(float)((rgb >> 16) & 0xFF), (float)((rgb >> 8) & 0xFF), (float)(rgb & 0xFF), a};
 }
 inline Rgba mix(Rgba a, Rgba b, float t) {
-    return {a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t,
-            a.a + (b.a - a.a) * t};
+    return {a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, a.a + (b.a - a.a) * t};
 }
 
 // Coverage of a shape edge at signed distance d (pixels; negative = inside).
@@ -49,8 +50,7 @@ inline void blend_at(Image& img, int x, int y, Rgba c, float cov) {
 }
 
 // Signed distance to a rounded rectangle centred at (cx, cy).
-inline float sd_round_rect(float px, float py, float cx, float cy,
-                           float hw, float hh, float r) {
+inline float sd_round_rect(float px, float py, float cx, float cy, float hw, float hh, float r) {
     const float qx = std::fabs(px - cx) - (hw - r);
     const float qy = std::fabs(py - cy) - (hh - r);
     const float ox = std::max(qx, 0.0f), oy = std::max(qy, 0.0f);
@@ -107,4 +107,4 @@ inline void alloc(Image& img, int w, int h) {
     ++img.version;
 }
 
-} // namespace raster
+}  // namespace raster

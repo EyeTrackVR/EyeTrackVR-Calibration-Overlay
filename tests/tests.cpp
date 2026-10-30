@@ -15,6 +15,7 @@
 #include "text.h"
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -30,8 +31,24 @@
 #endif
 
 static int g_checks = 0, g_fail = 0;
-#define CHECK(c) do { ++g_checks; if (!(c)) { ++g_fail; std::printf("  FAIL %s:%d: %s\n", __FILE__, __LINE__, #c); } } while (0)
-#define CHECKM(c, ...) do { ++g_checks; if (!(c)) { ++g_fail; std::printf("  FAIL %s:%d: %s -- ", __FILE__, __LINE__, #c); std::printf(__VA_ARGS__); std::printf("\n"); } } while (0)
+#define CHECK(c)                                                       \
+    do {                                                               \
+        ++g_checks;                                                    \
+        if (!(c)) {                                                    \
+            ++g_fail;                                                  \
+            std::printf("  FAIL %s:%d: %s\n", __FILE__, __LINE__, #c); \
+        }                                                              \
+    } while (0)
+#define CHECKM(c, ...)                                                   \
+    do {                                                                 \
+        ++g_checks;                                                      \
+        if (!(c)) {                                                      \
+            ++g_fail;                                                    \
+            std::printf("  FAIL %s:%d: %s -- ", __FILE__, __LINE__, #c); \
+            std::printf(__VA_ARGS__);                                    \
+            std::printf("\n");                                           \
+        }                                                                \
+    } while (0)
 
 // ── Test doubles ──────────────────────────────────────────────────────────────
 
@@ -50,34 +67,62 @@ struct FakeNet : UdpNet {
         return n;
     }
     static void be(std::vector<unsigned char>& v, uint32_t x) {
-        v.push_back((unsigned char)(x >> 24)); v.push_back((unsigned char)(x >> 16));
-        v.push_back((unsigned char)(x >> 8));  v.push_back((unsigned char)x);
+        v.push_back((unsigned char)(x >> 24));
+        v.push_back((unsigned char)(x >> 16));
+        v.push_back((unsigned char)(x >> 8));
+        v.push_back((unsigned char)x);
     }
-    void cmd(int32_t c) { std::vector<unsigned char> v; be(v, (uint32_t)c); inbox.push_back(v); }
+    void cmd(int32_t c) {
+        std::vector<unsigned char> v;
+        be(v, (uint32_t)c);
+        inbox.push_back(v);
+    }
     void cmd_xy(int32_t c, float x, float y) {
-        std::vector<unsigned char> v; be(v, (uint32_t)c);
-        uint32_t xi, yi; std::memcpy(&xi, &x, 4); std::memcpy(&yi, &y, 4);
-        be(v, xi); be(v, yi); inbox.push_back(v);
+        std::vector<unsigned char> v;
+        be(v, (uint32_t)c);
+        uint32_t xi, yi;
+        std::memcpy(&xi, &x, 4);
+        std::memcpy(&yi, &y, 4);
+        be(v, xi);
+        be(v, yi);
+        inbox.push_back(v);
     }
     void text(const std::string& s) {
-        std::vector<unsigned char> v; be(v, 50u); v.insert(v.end(), s.begin(), s.end()); inbox.push_back(v);
+        std::vector<unsigned char> v;
+        be(v, 50u);
+        v.insert(v.end(), s.begin(), s.end());
+        inbox.push_back(v);
     }
     std::vector<int32_t> values() const {
         std::vector<int32_t> out;
+        out.reserve(sent.size());
         for (auto& p : sent) out.push_back(p.second);
         return out;
     }
 };
 
-struct Config { const char* name; FovConfig f; };
+struct Config {
+    const char* name;
+    FovConfig f;
+};
 static std::vector<Config> configs() {
     std::vector<Config> c;
     c.push_back({"default", FovConfig{}});
-    FovConfig v6; v6.coverage = 0.80f; v6.max_deg = 36; v6.max_deg_up = 20; v6.max_deg_down = 40;
+    FovConfig v6;
+    v6.coverage = 0.80f;
+    v6.max_deg = 36;
+    v6.max_deg_up = 20;
+    v6.max_deg_down = 40;
     c.push_back({"v6", v6});
-    FovConfig wide; wide.coverage = 1.0f; wide.max_deg = 70; wide.max_deg_up = 70; wide.max_deg_down = 70;
+    FovConfig wide;
+    wide.coverage = 1.0f;
+    wide.max_deg = 70;
+    wide.max_deg_up = 70;
+    wide.max_deg_down = 70;
     c.push_back({"wide", wide});
-    FovConfig low; low.center_deg = -8.0f; low.max_deg_down = 35;
+    FovConfig low;
+    low.center_deg = -8.0f;
+    low.max_deg_down = 35;
     c.push_back({"center-8", low});
     return c;
 }
@@ -97,8 +142,8 @@ static void test_text() {
     const std::u32string a = decode_utf8("A\xC3\xA9\xE2\x82\xAC\xF0\x9F\x98\x80");
     CHECK(a.size() == 4 && a[0] == U'A' && a[1] == 0xE9 && a[2] == 0x20AC && a[3] == 0x1F600);
     CHECK(decode_utf8("\xC3") == std::u32string(1, 0xFFFD));
-    CHECK(decode_utf8("\xC0\xAF").find(0x2F) == std::u32string::npos);   // overlong rejected
-    CHECK(decode_utf8("\xED\xA0\x80")[0] == 0xFFFD);                      // surrogate rejected
+    CHECK(decode_utf8("\xC0\xAF").find(0x2F) == std::u32string::npos);  // overlong rejected
+    CHECK(decode_utf8("\xED\xA0\x80")[0] == 0xFFFD);                    // surrogate rejected
     CHECK(normalize_instruction("  squint \r\n follow\tthe dot\n\n\x01") == "Squint\nFollow the dot");
     CHECK(normalize_instruction("\n\n").empty());
 
@@ -108,7 +153,8 @@ static void test_text() {
     Image img;
     PanelContent pc;
     pc.text = "Follow the dot\nKeep your head still";
-    pc.pips_total = 11; pc.pips_done = 3;
+    pc.pips_total = 11;
+    pc.pips_done = 3;
     tr.render_panel(pc, 990, img);
     CHECK(img.w > 2 * TextRenderer::kShadowPad && img.h > 2 * TextRenderer::kShadowPad);
     CHECK(img.w <= TextRenderer::kMaxWidth && img.h <= TextRenderer::kMaxHeight);
@@ -118,12 +164,15 @@ static void test_text() {
     const uint64_t v0 = img.version;
     pc.text = std::string(2000, 'W') + "\n" + std::string(3000, 'x') + " a b c";
     pc.tone = Tone::Success;
-    tr.render_panel(pc, 990, img);   // must clamp, not overflow
+    tr.render_panel(pc, 990, img);  // must clamp, not overflow
     CHECK(img.version != v0);
     CHECK(img.w <= TextRenderer::kMaxWidth && img.h <= TextRenderer::kMaxHeight);
-    pc.text = "\xE6\xA0\xA1\xE5\x87\x86 \xD0\x9A\xD0\xB0\xD0\xBB\xD0\xB8\xD0\xB1\xD1\x80\xD0\xBE\xD0\xB2\xD0\xBA\xD0\xB0\n\xFF\xFE";
-    pc.pips_total = 0; pc.bar = 0.4f;
-    tr.render_panel(pc, 400, img);   // CJK/Cyrillic/garbage: no crash
+    pc.text =
+        "\xE6\xA0\xA1\xE5\x87\x86 "
+        "\xD0\x9A\xD0\xB0\xD0\xBB\xD0\xB8\xD0\xB1\xD1\x80\xD0\xBE\xD0\xB2\xD0\xBA\xD0\xB0\n\xFF\xFE";
+    pc.pips_total = 0;
+    pc.bar = 0.4f;
+    tr.render_panel(pc, 400, img);  // CJK/Cyrillic/garbage: no crash
     CHECK(img.w >= 320);
     CHECK(sprites::dot().w == 128 && sprites::ring().w == 256);
 }
@@ -152,11 +201,14 @@ static void test_geometry() {
             for (int i = 0; i < 360; ++i) {
                 const float a = i * kDeg2Rad;
                 for (float rad : {0.3f, 0.6f, 0.88f, 1.0f})
-                    if (!g.disc_visible(r.x(rad * std::cos(a)), r.y(rad * std::sin(a)), kTargetVisibleMargin * 0.98f)) ++bad;
+                    if (!g.disc_visible(r.x(rad * std::cos(a)), r.y(rad * std::sin(a)), kTargetVisibleMargin * 0.98f))
+                        ++bad;
             }
-            CHECKM(bad == 0, "%s/%s: %d invisible ellipse samples (scale %.3f)", hmd.c_str(), c.name, bad, g.ellipse_scale);
+            CHECKM(bad == 0, "%s/%s: %d invisible ellipse samples (scale %.3f)", hmd.c_str(), c.name, bad,
+                   g.ellipse_scale);
             // Lens polygons from the profiles are plausible and get used.
-            if (hmd != "generic") CHECKM(g.used_polygons, "%s/%s polygons not used: %s", hmd.c_str(), c.name, notes.c_str());
+            if (hmd != "generic")
+                CHECKM(g.used_polygons, "%s/%s polygons not used: %s", hmd.c_str(), c.name, notes.c_str());
         }
     }
 
@@ -180,9 +232,9 @@ static void test_geometry() {
         EyeGeom eyes[2];
         sim_hmd("index", eyes);
         EyeGeom e = eyes[0];
-        e.visible = {{0.2f, 0.2f}, {0.5f, 0.2f}, {0.5f, 0.5f}};   // misses the axis
+        e.visible = {{0.2f, 0.2f}, {0.5f, 0.2f}, {0.5f, 0.5f}};  // misses the axis
         CHECK(!sanitize_polygon(e) && e.visible.empty());
-        e.visible = {{-0.1f, -0.1f}, {0.1f, -0.1f}, {0.1f, 0.1f}, {-0.1f, 0.1f}};   // tiny
+        e.visible = {{-0.1f, -0.1f}, {0.1f, -0.1f}, {0.1f, 0.1f}, {-0.1f, 0.1f}};  // tiny
         CHECK(!sanitize_polygon(e));
         e.visible = {{0, 0}, {std::numeric_limits<float>::quiet_NaN(), 1}, {1, 1}};
         CHECK(!sanitize_polygon(e));
@@ -202,7 +254,10 @@ static void test_geometry() {
         // Area check keeps it; it only trims modestly (> 0.6x) so it is used.
         CHECK(g.used_polygons || notes.find("rejected") != std::string::npos);
         for (auto& b : bad)
-            for (auto& v : b.visible) { v.x *= 0.45f; v.y *= 0.55f; }
+            for (auto& v : b.visible) {
+                v.x *= 0.45f;
+                v.y *= 0.55f;
+            }
         CHECK(compute_view_geometry(bad, 3.0f, wide, g, &notes));
         CHECKM(!g.used_polygons, "collapsing polygon was obeyed: %s", notes.c_str());
     }
@@ -228,9 +283,8 @@ struct Run {
     bool finished = false;
 };
 
-static Run run_mode(const std::string& name, const GazeRange& g, double dt_lo, double dt_hi,
-                    double limit_s, unsigned seed = 1,
-                    const std::function<void(FakeNet&, double, const Scene&)>& driver = {}) {
+static Run run_mode(const std::string& name, const GazeRange& g, double dt_lo, double dt_hi, double limit_s,
+                    unsigned seed = 1, const std::function<void(FakeNet&, double, const Scene&)>& driver = {}) {
     Run r;
     FakeNet net;
     auto mode = make_mode(name);
@@ -257,7 +311,7 @@ static void check_holds(const Run& r, const char* what) {
     // Whenever capture_hold is set the dot must be stationary and every capture
     // signal must be followed by >= 0.5 s - one frame of stationary dot.
     for (const auto& sig : r.signals) {
-        if (sig.second == 9 || sig.second == 19 || sig.second == 100) continue;   // "done" sentinels
+        if (sig.second == 9 || sig.second == 19 || sig.second == 100) continue;  // "done" sentinels
         size_t i = 0;
         while (i < r.t.size() && r.t[i] < sig.first - 1e-9) ++i;
         if (i >= r.scenes.size()) continue;
@@ -284,6 +338,7 @@ static void test_modes(const GazeRange& g) {
         for (int i = 0; i <= 10; ++i) want.push_back(i);
         want.push_back(100);
         std::vector<int32_t> got;
+        got.reserve(ft.signals.size());
         for (auto& s : ft.signals) got.push_back(s.second);
         CHECK(got == want);
         CHECK(ft.finished);
@@ -321,10 +376,17 @@ static void test_modes(const GazeRange& g) {
     }
 
     // Finetune dot positions at capture equal the protocol coordinates.
-    const float FT[11][2] = {{0.0f, 0.8f}, {0.760845f, 0.247214f}, {0.470228f, -0.647214f},
-                             {-0.470228f, -0.647214f}, {-0.760845f, 0.247214f}, {0.24687f, 0.339787f},
-                             {0.399444f, -0.129787f}, {0.0f, -0.42f}, {-0.399444f, -0.129787f},
-                             {-0.24687f, 0.339787f}, {0.0f, 0.0f}};
+    const float FT[11][2] = {{0.0f, 0.8f},
+                             {0.760845f, 0.247214f},
+                             {0.470228f, -0.647214f},
+                             {-0.470228f, -0.647214f},
+                             {-0.760845f, 0.247214f},
+                             {0.24687f, 0.339787f},
+                             {0.399444f, -0.129787f},
+                             {0.0f, -0.42f},
+                             {-0.399444f, -0.129787f},
+                             {-0.24687f, 0.339787f},
+                             {0.0f, 0.0f}};
     Run ft = run_mode("finetune", g, 1.0 / 90, 1.0 / 90, 60.0);
     for (const auto& sig : ft.signals) {
         if (sig.second > 10) continue;
@@ -332,8 +394,9 @@ static void test_modes(const GazeRange& g) {
         while (i < ft.t.size() && ft.t[i] < sig.first - 1e-9) ++i;
         const Scene& s = ft.scenes[i];
         CHECK(s.dot_visible);
-        CHECKM(std::fabs(s.dot_x - g.x(FT[sig.second][0])) < 1e-4f &&
-               std::fabs(s.dot_y - g.y(FT[sig.second][1])) < 1e-4f, "finetune point %d misplaced", sig.second);
+        CHECKM(
+            std::fabs(s.dot_x - g.x(FT[sig.second][0])) < 1e-4f && std::fabs(s.dot_y - g.y(FT[sig.second][1])) < 1e-4f,
+            "finetune point %d misplaced", sig.second);
     }
 }
 
@@ -348,8 +411,9 @@ struct Interactive {
     explicit Interactive(const GazeRange& gr) : g(gr) { mode->on_start(net); }
     void step(double secs) {
         const double dt = 1.0 / 90;
-        for (double e = 0; e < secs - 1e-9 && !mode->finished(); e += dt) {
-            t += dt; net.now = t;
+        for (int i = 0; i * dt < secs - 1e-9 && !mode->finished(); ++i) {
+            t += dt;
+            net.now = t;
             last = mode->update(dt, net, g);
         }
     }
@@ -415,7 +479,7 @@ static void test_interactive(const GazeRange& g) {
     it.net.cmd_xy(113, -0.45f, 0.35f);
     it.step(0.05);
     CHECK(it.count(21) == 2);
-    CHECK(it.last.dot_x > g.x(-0.45f) && it.last.dot_x < g.x(0.45f));   // gliding between pins
+    CHECK(it.last.dot_x > g.x(-0.45f) && it.last.dot_x < g.x(0.45f));  // gliding between pins
     it.step(0.8);
     it.net.cmd(114);
     it.net.cmd(98);
@@ -445,7 +509,7 @@ static void test_interactive(const GazeRange& g) {
     it.step(0.1);
     CHECK(it.last.text.find("Widen") == 0);
     it.step(1.5);
-    CHECK(it.count(0) == zeros + 1);   // new sweep started from point 0
+    CHECK(it.count(0) == zeros + 1);  // new sweep started from point 0
     // Text the app put up before its voice prompt survives the pass start; with
     // none, the pass shows its own (localised) instruction.
     it.net.cmd(119);
@@ -475,12 +539,13 @@ static void test_interactive(const GazeRange& g) {
 // ── Presenter layout invariants ───────────────────────────────────────────────
 
 struct LayoutStats {
-    int frames = 0, text_frames = 0, panel_frames = 0, overlap = 0, hold_fadein = 0, invisible_panel = 0, invisible_dot = 0;
+    int frames = 0, text_frames = 0, panel_frames = 0, overlap = 0, hold_fadein = 0, invisible_panel = 0,
+        invisible_dot = 0;
     int trail_frames = 0, trail_at_hold = 0, trail_detached = 0, trail_too_wide = 0, trail_jump = 0;
 };
 
-static void layout_run(const std::string& mode_name, const ViewGeometry& vg, TextRenderer& tr,
-                       LayoutStats& st, const std::string& tag, unsigned seed) {
+static void layout_run(const std::string& mode_name, const ViewGeometry& vg, TextRenderer& tr, LayoutStats& st,
+                       const std::string& tag, unsigned seed) {
     FakeNet net;
     auto mode = make_mode(mode_name);
     Presenter pr(&tr);
@@ -493,18 +558,20 @@ static void layout_run(const std::string& mode_name, const ViewGeometry& vg, Tex
     // Interactive script mirroring data_collection.py.
     std::mt19937 rng(seed);
     std::uniform_real_distribution<float> jit(-0.12f, 0.12f);
-    const float base[22][2] = {{-0.60f, -0.60f}, {-0.85f, -0.26f}, {-0.43f, -0.46f}, {-0.36f, 0.00f},
-                               {-0.85f, 0.33f}, {-0.43f, 0.46f}, {-0.60f, 0.60f}, {0.00f, 0.85f},
-                               {0.00f, 0.39f}, {-0.26f, 0.16f}, {-0.17f, -0.23f}, {0.00f, -0.39f},
-                               {0.00f, -0.85f}, {0.43f, -0.46f}, {0.26f, -0.16f}, {0.36f, 0.00f},
-                               {0.17f, 0.23f}, {0.43f, 0.46f}, {0.60f, 0.60f}, {0.85f, 0.33f},
-                               {0.85f, -0.26f}, {0.60f, -0.60f}};
+    const float base[22][2] = {{-0.60f, -0.60f}, {-0.85f, -0.26f}, {-0.43f, -0.46f}, {-0.36f, 0.00f}, {-0.85f, 0.33f},
+                               {-0.43f, 0.46f},  {-0.60f, 0.60f},  {0.00f, 0.85f},   {0.00f, 0.39f},  {-0.26f, 0.16f},
+                               {-0.17f, -0.23f}, {0.00f, -0.39f},  {0.00f, -0.85f},  {0.43f, -0.46f}, {0.26f, -0.16f},
+                               {0.36f, 0.00f},   {0.17f, 0.23f},   {0.43f, 0.46f},   {0.60f, 0.60f},  {0.85f, 0.33f},
+                               {0.85f, -0.26f},  {0.60f, -0.60f}};
     int step = 0, jitter_i = 0, blink_i = 0;
     double wait_until = 0.0;
     size_t seen = 0;
     auto got = [&](int32_t v) {
         for (size_t i = seen; i < net.sent.size(); ++i)
-            if (net.sent[i].second == v) { seen = i + 1; return true; }
+            if (net.sent[i].second == v) {
+                seen = i + 1;
+                return true;
+            }
         return false;
     };
 
@@ -512,26 +579,71 @@ static void layout_run(const std::string& mode_name, const ViewGeometry& vg, Tex
     while (t < 400.0 && !mode->finished()) {
         if (mode_name == "interactive" && t >= wait_until) {
             switch (step) {
-            case 0: net.text("Close your eyes and look in random direction"); wait_until = t + 3; ++step; break;
-            case 1: net.cmd(98); net.cmd(100); ++step; break;
-            case 2: if (got(10)) { ++step; } break;
-            case 3: {
-                float x = base[jitter_i][0] + jit(rng), y = base[jitter_i][1] + jit(rng);
-                const float r = std::hypot(x, y);
-                if (r > 0.879f) { x *= 0.879f / r; y *= 0.879f / r; }
-                net.cmd_xy(111, x, y); ++step; break;
-            }
-            case 4: if (got(20)) { wait_until = t + 0.05; ++jitter_i; step = jitter_i < 22 ? 3 : 5; } break;
-            case 5: net.cmd(119); ++step; break;
-            case 6: if (got(19)) { net.text("Blink repeatedly\nlook at the dot"); ++step; } break;
-            case 7: {
-                const float bx[4] = {-0.45f, 0.45f, 0.45f, -0.45f}, by[4] = {0.35f, 0.35f, -0.35f, -0.35f};
-                net.cmd_xy(113, bx[blink_i] + jit(rng), by[blink_i] + jit(rng));
-                wait_until = t + 3.5; ++blink_i; if (blink_i == 4) ++step; break;
-            }
-            case 8: net.cmd(114); net.cmd(98); net.cmd(120); wait_until = t + 4; ++step; break;
-            case 9: net.cmd(121); net.cmd(200); ++step; break;
-            default: break;
+                case 0:
+                    net.text("Close your eyes and look in random direction");
+                    wait_until = t + 3;
+                    ++step;
+                    break;
+                case 1:
+                    net.cmd(98);
+                    net.cmd(100);
+                    ++step;
+                    break;
+                case 2:
+                    if (got(10)) {
+                        ++step;
+                    }
+                    break;
+                case 3: {
+                    float x = base[jitter_i][0] + jit(rng), y = base[jitter_i][1] + jit(rng);
+                    const float r = std::hypot(x, y);
+                    if (r > 0.879f) {
+                        x *= 0.879f / r;
+                        y *= 0.879f / r;
+                    }
+                    net.cmd_xy(111, x, y);
+                    ++step;
+                    break;
+                }
+                case 4:
+                    if (got(20)) {
+                        wait_until = t + 0.05;
+                        ++jitter_i;
+                        step = jitter_i < 22 ? 3 : 5;
+                    }
+                    break;
+                case 5:
+                    net.cmd(119);
+                    ++step;
+                    break;
+                case 6:
+                    if (got(19)) {
+                        net.text("Blink repeatedly\nlook at the dot");
+                        ++step;
+                    }
+                    break;
+                case 7: {
+                    const float bx[4] = {-0.45f, 0.45f, 0.45f, -0.45f}, by[4] = {0.35f, 0.35f, -0.35f, -0.35f};
+                    net.cmd_xy(113, bx[blink_i] + jit(rng), by[blink_i] + jit(rng));
+                    wait_until = t + 3.5;
+                    ++blink_i;
+                    if (blink_i == 4) ++step;
+                    break;
+                }
+                case 8:
+                    net.cmd(114);
+                    net.cmd(98);
+                    net.cmd(120);
+                    wait_until = t + 4;
+                    ++step;
+                    break;
+                case 9:
+                    net.cmd(121);
+                    net.cmd(200);
+                    ++step;
+                    break;
+                default:
+                    break;
             }
         }
         t += dt;
@@ -545,15 +657,20 @@ static void layout_run(const std::string& mode_name, const ViewGeometry& vg, Tex
         const bool panel = pr.panel_body(body) && f.panel.alpha > 0.02f;
         if (panel) ++st.panel_frames;
         const float speed = have_prev ? std::hypot(f.dot.x - px, f.dot.y - py) / (float)dt : 0.0f;
-        if (f.dot.visible) { px = f.dot.x; py = f.dot.y; have_prev = true; } else have_prev = false;
+        if (f.dot.visible) {
+            px = f.dot.x;
+            py = f.dot.y;
+            have_prev = true;
+        } else
+            have_prev = false;
 
         if (panel && f.dot.visible && f.dot.alpha > 0.02f && speed < 1.5f) {
             const float r = f.dot.w * 0.5f * sprites::kSpriteEdge;
             const float qx = std::clamp(f.dot.x, body.x0, body.x1), qy = std::clamp(f.dot.y, body.y0, body.y1);
             if (std::hypot(f.dot.x - qx, f.dot.y - qy) < r) {
                 if (st.overlap++ < 3)
-                    std::printf("  overlap %s t=%.2f dot(%.2f,%.2f) panel[%.2f..%.2f]x[%.2f..%.2f]\n",
-                                tag.c_str(), t, f.dot.x, f.dot.y, body.x0, body.x1, body.y0, body.y1);
+                    std::printf("  overlap %s t=%.2f dot(%.2f,%.2f) panel[%.2f..%.2f]x[%.2f..%.2f]\n", tag.c_str(), t,
+                                f.dot.x, f.dot.y, body.x0, body.x1, body.y0, body.y1);
             }
         }
         const float palpha = f.panel.visible ? f.panel.alpha : 0.0f;
@@ -564,7 +681,8 @@ static void layout_run(const std::string& mode_name, const ViewGeometry& vg, Tex
             if (!vg.rect_visible(body.x0 * k, body.y0 * k, body.x1 * k, body.y1 * k, -cfg::TEXT_DIST))
                 ++st.invisible_panel;
         }
-        if (s.capture_hold && s.dot_visible && !vg.disc_visible(s.dot_x, s.dot_y, s.dot_size * 0.5f * sprites::kSpriteEdge))
+        if (s.capture_hold && s.dot_visible &&
+            !vg.disc_visible(s.dot_x, s.dot_y, s.dot_size * 0.5f * sprites::kSpriteEdge))
             ++st.invisible_dot;
 
         // Motion trail: only behind a moving dot, its head under the dot, never
@@ -584,24 +702,33 @@ static void layout_run(const std::string& mode_name, const ViewGeometry& vg, Tex
     CHECKM(mode->finished(), "%s did not finish", tag.c_str());
 }
 
-static void test_layout() {
-    std::printf("layout\n");
+// Runs every shard-th headset/config/mode combination starting at `shard`.
+static void test_layout(int shard, int shards) {
+    std::printf("layout %d/%d\n", shard, shards);
     TextRenderer tr;
     CHECK(tr.load(ETVR_FONT));
+    int index = 0;
     for (const auto& hmd : sim_hmd_names()) {
         for (const auto& c : configs()) {
             const ViewGeometry vg = geometry(hmd, c.f);
             for (const char* m : {"finetune", "datacollect", "ellipse", "interactive", "9point", "center"}) {
+                if (index++ % shards != shard) continue;
                 LayoutStats st;
                 const std::string tag = hmd + "/" + c.name + "/" + m;
                 layout_run(m, vg, tr, st, tag, 11);
                 CHECKM(st.overlap == 0, "%s: panel covered the dot on %d frames", tag.c_str(), st.overlap);
-                CHECKM(st.hold_fadein == 0, "%s: panel appeared during capture on %d frames", tag.c_str(), st.hold_fadein);
-                CHECKM(st.invisible_panel == 0, "%s: panel outside the visible FOV on %d frames", tag.c_str(), st.invisible_panel);
-                CHECKM(st.invisible_dot == 0, "%s: target not fully visible on %d capture frames", tag.c_str(), st.invisible_dot);
-                CHECKM(st.trail_at_hold == 0, "%s: trail visible during capture on %d frames", tag.c_str(), st.trail_at_hold);
-                CHECKM(st.trail_detached == 0, "%s: trail head off the dot on %d frames", tag.c_str(), st.trail_detached);
-                CHECKM(st.trail_too_wide == 0, "%s: trail wider than the dot on %d frames", tag.c_str(), st.trail_too_wide);
+                CHECKM(st.hold_fadein == 0, "%s: panel appeared during capture on %d frames", tag.c_str(),
+                       st.hold_fadein);
+                CHECKM(st.invisible_panel == 0, "%s: panel outside the visible FOV on %d frames", tag.c_str(),
+                       st.invisible_panel);
+                CHECKM(st.invisible_dot == 0, "%s: target not fully visible on %d capture frames", tag.c_str(),
+                       st.invisible_dot);
+                CHECKM(st.trail_at_hold == 0, "%s: trail visible during capture on %d frames", tag.c_str(),
+                       st.trail_at_hold);
+                CHECKM(st.trail_detached == 0, "%s: trail head off the dot on %d frames", tag.c_str(),
+                       st.trail_detached);
+                CHECKM(st.trail_too_wide == 0, "%s: trail wider than the dot on %d frames", tag.c_str(),
+                       st.trail_too_wide);
                 CHECKM(st.trail_jump == 0, "%s: trail drawn across a jump on %d frames", tag.c_str(), st.trail_jump);
                 const bool moves = std::string(m) != "9point" && std::string(m) != "center";
                 CHECKM(moves == (st.trail_frames > 0), "%s: trail shown on %d frames", tag.c_str(), st.trail_frames);
@@ -627,13 +754,20 @@ static void test_session() {
         Session s(*mode, net, pr);
         const ViewGeometry vg = geometry("quest3", FovConfig{});
         double t = 0;
-        while (!s.started() && t < 10) { t += 1.0 / 90; net.now = t; s.step(1.0 / 90, vg); }
+        while (!s.started() && t < 10) {
+            t += 1.0 / 90;
+            net.now = t;
+            s.step(1.0 / 90, vg);
+        }
         CHECK(t >= Session::kMinWarmup && t < Session::kMinWarmup + 0.05);
         CHECK(net.sent.size() == 1 && net.sent[0].second == 255);
         s.request_quit();
         double q = 0;
         Frame f;
-        while (!s.done() && q < 5) { q += 1.0 / 90; f = s.step(1.0 / 90, vg); }
+        while (!s.done() && q < 5) {
+            q += 1.0 / 90;
+            f = s.step(1.0 / 90, vg);
+        }
         CHECK(s.done() && q <= Session::kMaxOutro + 0.05);
         CHECK(f.backdrop_alpha < 0.05f);
     }
@@ -645,10 +779,17 @@ static void test_session() {
         Session s(*mode, net, pr);
         const ViewGeometry vg = fallback_view_geometry(FovConfig{}, 3.0f);
         double t = 0;
-        while (!s.started() && t < 10) { t += 1.0 / 90; s.step(1.0 / 90, vg); }
+        while (!s.started() && t < 10) {
+            t += 1.0 / 90;
+            s.step(1.0 / 90, vg);
+        }
         CHECK(t >= Session::kMaxWarmup - 0.02 && t < Session::kMaxWarmup + 0.05);
         // And runs to completion with the outro.
-        while (!s.done() && t < 60) { t += 1.0 / 90; net.now = t; s.step(1.0 / 90, vg); }
+        while (!s.done() && t < 60) {
+            t += 1.0 / 90;
+            net.now = t;
+            s.step(1.0 / 90, vg);
+        }
         CHECK(s.done());
         CHECK(!net.sent.empty() && net.sent.back().second == 100);
     }
@@ -680,15 +821,42 @@ static void test_i18n() {
     CHECK(std::string(i18n::tr(i18n::Str::FollowTitle)) == "Follow the dot");
 }
 
-int main() {
-    test_i18n();
-    test_text();
-    test_geometry();
+// Parses "shard/shards" for the layout suite.
+static bool parse_shard(const char* s, int& shard, int& shards) {
+    const char* end = s + std::strlen(s);
+    auto r = std::from_chars(s, end, shard);
+    if (r.ec != std::errc() || r.ptr == end || *r.ptr != '/') return false;
+    r = std::from_chars(r.ptr + 1, end, shards);
+    return r.ec == std::errc() && r.ptr == end && shards >= 1 && shard >= 0 && shard < shards;
+}
+
+// etvr_tests [suite [shard/shards]]: no suite runs everything; CTest runs one
+// suite (or one layout shard) per test so they spread over the cores.
+int main(int argc, char** argv) {
+    const std::string only = argc > 1 ? argv[1] : "";
+    int shard = 0, shards = 1;
+    if (argc > 2 && !parse_shard(argv[2], shard, shards)) {
+        std::printf("bad shard '%s', expected i/n\n", argv[2]);
+        return 2;
+    }
+    bool ran = false;
+    auto want = [&](const char* name) {
+        const bool w = only.empty() || only == name;
+        ran |= w;
+        return w;
+    };
     const GazeRange g = geometry("beyond2", configs()[1].f).gaze;
-    test_modes(g);
-    test_interactive(g);
-    test_layout();
-    test_session();
+    if (want("i18n")) test_i18n();
+    if (want("text")) test_text();
+    if (want("geometry")) test_geometry();
+    if (want("modes")) test_modes(g);
+    if (want("interactive")) test_interactive(g);
+    if (want("layout")) test_layout(shard, shards);
+    if (want("session")) test_session();
+    if (!ran) {
+        std::printf("unknown suite '%s'\n", only.c_str());
+        return 2;
+    }
     std::printf("\n%d checks, %d failed\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }

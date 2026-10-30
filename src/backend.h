@@ -31,6 +31,5 @@ public:
     // Render one frame. dt is seconds since the previous rendered frame. When
     // the headset is visible, update_cb(dt, geometry) is called to obtain the
     // frame contents. Returns false if the loop should stop.
-    virtual bool frame(
-        const std::function<Frame(double dt, const ViewGeometry&)>& update_cb) = 0;
+    virtual bool frame(const std::function<Frame(double dt, const ViewGeometry&)>& update_cb) = 0;
 };

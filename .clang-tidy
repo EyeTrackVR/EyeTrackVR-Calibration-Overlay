@@ -1,0 +1,11 @@
+Checks: >
+  bugprone-*,
+  clang-analyzer-*,
+  performance-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-invalid-enum-default-initialization,
+  -bugprone-narrowing-conversions,
+  -bugprone-signed-bitwise,
+  -performance-enum-size
+WarningsAsErrors: '*'
+HeaderFilterRegex: '/(src|tests)/'

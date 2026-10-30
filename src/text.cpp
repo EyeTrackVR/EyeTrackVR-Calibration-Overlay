@@ -15,41 +15,41 @@ using raster::Rgba;
 namespace {
 
 // ── Panel style (px at TextRenderer::kPixelsPerMetre) ─────────────────────────
-constexpr float kTitleEm    = 60.0f;   // ≈1.8° at 3 m
-constexpr float kSubEm      = 44.0f;
-constexpr float kTitleLine  = 1.24f;   // line height / em
-constexpr float kSubLine    = 1.30f;
-constexpr float kPadX       = 44.0f;
-constexpr float kPadY       = 28.0f;
-constexpr float kTitleGap   = 4.0f;    // title block → subtitle block
-constexpr float kRadius     = 24.0f;
-constexpr float kMinBodyW   = 320.0f;
-constexpr int   kMaxTitleLines = 2;
-constexpr int   kMaxSubLines   = 3;
-constexpr float kPipR       = 7.5f;
-constexpr float kPipStep    = 25.0f;
-constexpr float kRowGap     = 18.0f;   // text → progress row
-constexpr float kBarH       = 7.0f;
-constexpr float kBarMinW    = 260.0f;
-constexpr int   kMaxPips    = 24;
+constexpr float kTitleEm = 60.0f;  // ≈1.8° at 3 m
+constexpr float kSubEm = 44.0f;
+constexpr float kTitleLine = 1.24f;  // line height / em
+constexpr float kSubLine = 1.30f;
+constexpr float kPadX = 44.0f;
+constexpr float kPadY = 28.0f;
+constexpr float kTitleGap = 4.0f;  // title block → subtitle block
+constexpr float kRadius = 24.0f;
+constexpr float kMinBodyW = 320.0f;
+constexpr int kMaxTitleLines = 2;
+constexpr int kMaxSubLines = 3;
+constexpr float kPipR = 7.5f;
+constexpr float kPipStep = 25.0f;
+constexpr float kRowGap = 18.0f;  // text → progress row
+constexpr float kBarH = 7.0f;
+constexpr float kBarMinW = 260.0f;
+constexpr int kMaxPips = 24;
 
-const Rgba kCardTop    = raster::hex(0x1C1F2B, 0.92f);
-const Rgba kCardBottom = raster::hex(0x10121A, 0.92f);
-const Rgba kBorder     = raster::hex(0xFFFFFF, 0.10f);
-const Rgba kTitle      = raster::hex(0xFFFFFF);
-const Rgba kTitleOk    = raster::hex(0x8DF0B8);
-const Rgba kSub        = raster::hex(0xC4C8D6);
-const Rgba kAccent     = raster::hex(0xB58CFF);
-const Rgba kAccentOk   = raster::hex(0x6BE3A0);
-const Rgba kTrack      = raster::hex(0xFFFFFF, 0.16f);
+constexpr Rgba kCardTop = raster::hex(0x1C1F2B, 0.92f);
+constexpr Rgba kCardBottom = raster::hex(0x10121A, 0.92f);
+constexpr Rgba kBorder = raster::hex(0xFFFFFF, 0.10f);
+constexpr Rgba kTitle = raster::hex(0xFFFFFF);
+constexpr Rgba kTitleOk = raster::hex(0x8DF0B8);
+constexpr Rgba kSub = raster::hex(0xC4C8D6);
+constexpr Rgba kAccent = raster::hex(0xB58CFF);
+constexpr Rgba kAccentOk = raster::hex(0x6BE3A0);
+constexpr Rgba kTrack = raster::hex(0xFFFFFF, 0.16f);
 
 struct Font {
-    std::string          path;
+    std::string path;
     std::vector<uint8_t> data;
-    stbtt_fontinfo       info{};
-    bool                 tried = false;
-    bool                 ok    = false;
-    float                ascent = 0.9f, descent = -0.25f;   // per em
+    stbtt_fontinfo info{};
+    bool tried = false;
+    bool ok = false;
+    float ascent = 0.9f, descent = -0.25f;  // per em
 };
 
 bool load_font(Font& f) {
@@ -60,9 +60,15 @@ bool load_font(Font& f) {
     if (n <= 0 || n > (std::streamoff)96 * 1024 * 1024) return false;
     f.data.resize((size_t)n);
     in.seekg(0);
-    if (!in.read((char*)f.data.data(), n)) { f.data.clear(); return false; }
+    if (!in.read((char*)f.data.data(), n)) {
+        f.data.clear();
+        return false;
+    }
     const int off = stbtt_GetFontOffsetForIndex(f.data.data(), 0);
-    if (off < 0 || !stbtt_InitFont(&f.info, f.data.data(), off)) { f.data.clear(); return false; }
+    if (off < 0 || !stbtt_InitFont(&f.info, f.data.data(), off)) {
+        f.data.clear();
+        return false;
+    }
     int a = 0, d = 0, g = 0;
     stbtt_GetFontVMetrics(&f.info, &a, &d, &g);
     const float s = stbtt_ScaleForMappingEmToPixels(&f.info, 1.0f);
@@ -74,9 +80,9 @@ bool load_font(Font& f) {
 
 struct Placed {
     const Font* font;
-    int         glyph;
-    float       x;       // pen x within the line
-    float       scale;
+    int glyph;
+    float x;  // pen x within the line
+    float scale;
 };
 
 struct Line {
@@ -84,24 +90,26 @@ struct Line {
     float width = 0.0f;
 };
 
-} // namespace
+}  // namespace
 
 struct TextRenderer::Impl {
-    std::vector<std::unique_ptr<Font>> fonts;   // [0] = primary
+    std::vector<std::unique_ptr<Font>> fonts;  // [0] = primary
 
     // First font (primary, then fallbacks in order) that has the glyph.
     const Font* font_for(char32_t cp, int& glyph) {
         for (size_t i = 0; i < fonts.size(); ++i) {
             Font& f = *fonts[i];
             if (!f.tried) {
-                if (load_font(f))
-                    std::cout << "[INFO] Loaded fallback font " << f.path << "\n";
+                if (load_font(f)) std::cout << "[INFO] Loaded fallback font " << f.path << "\n";
             }
             if (!f.ok) continue;
             const int g = stbtt_FindGlyphIndex(&f.info, (int)cp);
-            if (g != 0) { glyph = g; return &f; }
+            if (g != 0) {
+                glyph = g;
+                return &f;
+            }
         }
-        glyph = 0;   // .notdef box from the primary font
+        glyph = 0;  // .notdef box from the primary font
         return fonts[0].get();
     }
 
@@ -126,19 +134,24 @@ struct TextRenderer::Impl {
     }
 
     // Greedy word wrap of one paragraph into at most max_lines lines.
-    void wrap(const std::u32string& para, float em, float max_w, int max_lines,
-              std::vector<Line>& lines) {
+    void wrap(const std::u32string& para, float em, float max_w, int max_lines, std::vector<Line>& lines) {
         std::vector<std::u32string> words;
         std::u32string cur;
         for (char32_t c : para) {
-            if (c == U' ') { if (!cur.empty()) words.push_back(cur); cur.clear(); }
-            else cur.push_back(c);
+            if (c == U' ') {
+                if (!cur.empty()) words.push_back(cur);
+                cur.clear();
+            } else
+                cur.push_back(c);
         }
         if (!cur.empty()) words.push_back(cur);
 
         std::vector<std::u32string> out;
         std::u32string line;
-        auto flush = [&] { if (!line.empty()) out.push_back(line); line.clear(); };
+        auto flush = [&] {
+            if (!line.empty()) out.push_back(line);
+            line.clear();
+        };
         for (std::u32string w : words) {
             // Hard-break words wider than the line (long URLs, CJK runs).
             while (layout(w, em, nullptr) > max_w && w.size() > 1) {
@@ -148,9 +161,14 @@ struct TextRenderer::Impl {
                 out.push_back(w.substr(0, n));
                 w = w.substr(n);
             }
-            const std::u32string trial = line.empty() ? w : line + U' ' + w;
-            if (!line.empty() && layout(trial, em, nullptr) > max_w) { flush(); line = w; }
-            else line = trial;
+            std::u32string trial = line;
+            if (!trial.empty()) trial += U' ';
+            trial += w;
+            if (!line.empty() && layout(trial, em, nullptr) > max_w) {
+                flush();
+                line = w;
+            } else
+                line = trial;
         }
         flush();
         if ((int)out.size() > max_lines) {
@@ -158,7 +176,7 @@ struct TextRenderer::Impl {
             std::u32string& last = out.back();
             while (!last.empty() && layout(last + U"…", em, nullptr) > max_w) last.pop_back();
             while (!last.empty() && last.back() == U' ') last.pop_back();
-            last += U"…";
+            last += U'…';
         }
         for (const auto& s : out) {
             Line l;
@@ -193,7 +211,7 @@ bool TextRenderer::load(const std::string& primary, const std::vector<std::strin
     for (const auto& p : fallbacks) {
         if (p == impl_->fonts[0]->path) continue;
         auto fb = std::make_unique<Font>();
-        fb->path = p;   // opened lazily on first missing glyph
+        fb->path = p;  // opened lazily on first missing glyph
         impl_->fonts.push_back(std::move(fb));
     }
     return true;
@@ -210,16 +228,14 @@ void draw_line(Image& img, const Line& line, float x, float baseline, Rgba col, 
         const int passes = bold ? 2 : 1;
         for (int pass = 0; pass < passes; ++pass) {
             const float fx = x + p.x + (pass ? 0.7f : 0.0f);
-            const int   ix = (int)std::floor(fx);
+            const int ix = (int)std::floor(fx);
             const float sub = fx - ix;
             int x0, y0, x1, y1;
-            stbtt_GetGlyphBitmapBoxSubpixel(&p.font->info, p.glyph, p.scale, p.scale, sub, 0.0f,
-                                            &x0, &y0, &x1, &y1);
+            stbtt_GetGlyphBitmapBoxSubpixel(&p.font->info, p.glyph, p.scale, p.scale, sub, 0.0f, &x0, &y0, &x1, &y1);
             const int w = x1 - x0, h = y1 - y0;
             if (w <= 0 || h <= 0) continue;
             buf.assign((size_t)w * h, 0);
-            stbtt_MakeGlyphBitmapSubpixel(&p.font->info, buf.data(), w, h, w, p.scale, p.scale,
-                                          sub, 0.0f, p.glyph);
+            stbtt_MakeGlyphBitmapSubpixel(&p.font->info, buf.data(), w, h, w, p.scale, p.scale, sub, 0.0f, p.glyph);
             const int by = (int)std::lround(baseline);
             for (int j = 0; j < h; ++j)
                 for (int i = 0; i < w; ++i) {
@@ -251,7 +267,7 @@ void draw_check(Image& img, float x, float y, float size, Rgba col) {
         }
 }
 
-} // namespace
+}  // namespace
 
 void TextRenderer::render_panel(const PanelContent& content, int max_body_px, Image& out) {
     if (!ready()) return;
@@ -267,8 +283,11 @@ void TextRenderer::render_panel(const PanelContent& content, int max_body_px, Im
     {
         std::u32string cur;
         for (char32_t c : all) {
-            if (c == U'\n') { paras.push_back(cur); cur.clear(); }
-            else cur.push_back(c);
+            if (c == U'\n') {
+                paras.push_back(cur);
+                cur.clear();
+            } else
+                cur.push_back(c);
         }
         paras.push_back(cur);
     }
@@ -286,9 +305,12 @@ void TextRenderer::render_panel(const PanelContent& content, int max_body_px, Im
     }
 
     // Progress row: pips for short sequences, a bar otherwise.
-    int   pips = content.pips_total;
-    float bar  = content.bar;
-    if (pips > kMaxPips) { bar = (float)content.pips_done / (float)pips; pips = 0; }
+    int pips = content.pips_total;
+    float bar = content.bar;
+    if (pips > kMaxPips) {
+        bar = (float)content.pips_done / (float)pips;
+        pips = 0;
+    }
     const bool has_row = pips > 0 || bar >= 0.0f;
 
     float text_w = 0.0f;
@@ -404,15 +426,34 @@ std::u32string decode_utf8(const std::string& s) {
         const unsigned char c = p[i];
         int len = 0;
         char32_t cp = 0;
-        if (c < 0x80)              { cp = c; len = 1; }
-        else if ((c & 0xE0) == 0xC0) { cp = c & 0x1F; len = 2; }
-        else if ((c & 0xF0) == 0xE0) { cp = c & 0x0F; len = 3; }
-        else if ((c & 0xF8) == 0xF0) { cp = c & 0x07; len = 4; }
-        else { out.push_back(0xFFFD); ++i; continue; }
-        if (i + len > n) { out.push_back(0xFFFD); ++i; continue; }
+        if (c < 0x80) {
+            cp = c;
+            len = 1;
+        } else if ((c & 0xE0) == 0xC0) {
+            cp = c & 0x1F;
+            len = 2;
+        } else if ((c & 0xF0) == 0xE0) {
+            cp = c & 0x0F;
+            len = 3;
+        } else if ((c & 0xF8) == 0xF0) {
+            cp = c & 0x07;
+            len = 4;
+        } else {
+            out.push_back(0xFFFD);
+            ++i;
+            continue;
+        }
+        if (i + len > n) {
+            out.push_back(0xFFFD);
+            ++i;
+            continue;
+        }
         bool ok = true;
         for (int k = 1; k < len; ++k) {
-            if ((p[i + k] & 0xC0) != 0x80) { ok = false; break; }
+            if ((p[i + k] & 0xC0) != 0x80) {
+                ok = false;
+                break;
+            }
             cp = (cp << 6) | (p[i + k] & 0x3F);
         }
         // Reject overlongs, surrogates and out-of-range values.
@@ -444,9 +485,15 @@ std::string normalize_instruction(const std::string& s) {
     };
     for (char ch : s) {
         const unsigned char c = (unsigned char)ch;
-        if (c == '\n') { flush(); continue; }
-        if (c == '\t') { line.push_back(' '); continue; }
-        if (c < 0x20 || c == 0x7F) continue;   // control characters (incl. '\r', NUL)
+        if (c == '\n') {
+            flush();
+            continue;
+        }
+        if (c == '\t') {
+            line.push_back(' ');
+            continue;
+        }
+        if (c < 0x20 || c == 0x7F) continue;  // control characters (incl. '\r', NUL)
         line.push_back(ch);
     }
     flush();

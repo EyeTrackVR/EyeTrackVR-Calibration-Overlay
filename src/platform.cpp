@@ -8,17 +8,17 @@
 #include <filesystem>
 
 #ifdef _WIN32
-#  ifndef WIN32_LEAN_AND_MEAN
-#    define WIN32_LEAN_AND_MEAN
-#  endif
-#  ifndef NOMINMAX
-#    define NOMINMAX
-#  endif
-#  include <windows.h>
-#  include <tlhelp32.h>
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <tlhelp32.h>
 #else
-#  include <unistd.h>
-#  include <climits>
+#include <unistd.h>
+#include <climits>
 #endif
 
 namespace fs = std::filesystem;
@@ -34,33 +34,33 @@ double now_s() {
 }
 
 void on_quit_signal() {
-    if (g_quit.fetch_add(1) >= 1) std::_Exit(130);   // second request: leave now
+    if (g_quit.fetch_add(1) >= 1) std::_Exit(130);  // second request: leave now
 }
 
 #ifdef _WIN32
 BOOL WINAPI console_handler(DWORD type) {
     switch (type) {
-    case CTRL_C_EVENT:
-    case CTRL_BREAK_EVENT:
-        on_quit_signal();
-        return TRUE;
-    case CTRL_CLOSE_EVENT:
-    case CTRL_LOGOFF_EVENT:
-    case CTRL_SHUTDOWN_EVENT:
-        // Windows kills the process shortly after this returns; ask the main
-        // loop to tear down and give it a moment to do so.
-        on_quit_signal();
-        Sleep(1500);
-        return TRUE;
-    default:
-        return FALSE;
+        case CTRL_C_EVENT:
+        case CTRL_BREAK_EVENT:
+            on_quit_signal();
+            return TRUE;
+        case CTRL_CLOSE_EVENT:
+        case CTRL_LOGOFF_EVENT:
+        case CTRL_SHUTDOWN_EVENT:
+            // Windows kills the process shortly after this returns; ask the main
+            // loop to tear down and give it a moment to do so.
+            on_quit_signal();
+            Sleep(1500);
+            return TRUE;
+        default:
+            return FALSE;
     }
 }
 #else
 extern "C" void posix_handler(int) { on_quit_signal(); }
 #endif
 
-} // namespace
+}  // namespace
 
 std::string exe_dir(const char* argv0) {
     std::error_code ec;
@@ -98,7 +98,7 @@ void install_quit_handlers() {
 #ifdef _WIN32
     SetConsoleCtrlHandler(console_handler, TRUE);
 #else
-    struct sigaction sa {};
+    struct sigaction sa{};
     sa.sa_handler = posix_handler;
     sigemptyset(&sa.sa_mask);
     sigaction(SIGINT, &sa, nullptr);
@@ -121,7 +121,10 @@ ParentWatch::ParentWatch() {
         PROCESSENTRY32W pe{};
         pe.dwSize = sizeof(pe);
         for (BOOL ok = Process32FirstW(snap, &pe); ok; ok = Process32NextW(snap, &pe)) {
-            if (pe.th32ProcessID == self) { parent = pe.th32ParentProcessID; break; }
+            if (pe.th32ProcessID == self) {
+                parent = pe.th32ParentProcessID;
+                break;
+            }
         }
         CloseHandle(snap);
     }
@@ -130,10 +133,8 @@ ParentWatch::ParentWatch() {
         if (h) {
             // Guard against PID reuse: the parent must have started before us.
             FILETIME pc{}, pe2{}, pk{}, pu{}, sc{}, se{}, sk{}, su{};
-            if (GetProcessTimes(h, &pc, &pe2, &pk, &pu) &&
-                GetProcessTimes(GetCurrentProcess(), &sc, &se, &sk, &su) &&
-                CompareFileTime(&pc, &sc) <= 0 &&
-                WaitForSingleObject(h, 0) == WAIT_TIMEOUT) {
+            if (GetProcessTimes(h, &pc, &pe2, &pk, &pu) && GetProcessTimes(GetCurrentProcess(), &sc, &se, &sk, &su) &&
+                CompareFileTime(&pc, &sc) <= 0 && WaitForSingleObject(h, 0) == WAIT_TIMEOUT) {
                 handle_ = h;
                 active_ = true;
             } else {
@@ -180,8 +181,8 @@ std::vector<std::string> fallback_fonts(const std::string& lang) {
     char windir[MAX_PATH] = {};
     const UINT n = GetWindowsDirectoryA(windir, MAX_PATH);
     const std::string fonts = (n > 0 ? std::string(windir) : std::string("C:\\Windows")) + "\\Fonts\\";
-    for (const char* f : {"segoeui.ttf", "msyh.ttc", "YuGothM.ttc", "meiryo.ttc", "malgun.ttf",
-                          "simsun.ttc", "seguisym.ttf", "arial.ttf"})
+    for (const char* f : {"segoeui.ttf", "msyh.ttc", "YuGothM.ttc", "meiryo.ttc", "malgun.ttf", "simsun.ttc",
+                          "seguisym.ttf", "arial.ttf"})
         out.push_back(fonts + f);
 #else
     for (const char* f : {
@@ -209,4 +210,4 @@ std::vector<std::string> fallback_fonts(const std::string& lang) {
     return existing;
 }
 
-} // namespace platform
+}  // namespace platform

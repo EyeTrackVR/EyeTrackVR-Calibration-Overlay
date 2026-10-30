@@ -17,10 +17,10 @@ struct GazeRange {
     // real frusta are resolved (see compute_view_geometry).
     float center_x = 0.0f;
     float center_y = 0.0f;
-    float rx       = 2.10f;   // horizontal half-extent of the gaze range (m)
+    float rx = 2.10f;  // horizontal half-extent of the gaze range (m)
     // Vertical extents are independent because binocular visibility and useful
     // eye rotation are strongly asymmetric above/below straight-ahead.
-    float ry_up   = 2.10f;
+    float ry_up = 2.10f;
     float ry_down = 2.10f;
 
     // Binocular box visible to both eyes on the overlay plane (m), before the
@@ -48,9 +48,9 @@ struct FovConfig {
     // gaze sits below the horizon. Directional options remain available for
     // experiments. Downstream labels/calibration must use the matching cap for
     // the sign of Y.
-    float max_deg      = 30.0f;   // lateral (--max-deg)
-    float max_deg_up   = 15.0f;   // upward  (--max-deg-up)
-    float max_deg_down = 40.0f;   // downward (--max-deg-down)
+    float max_deg = 30.0f;       // lateral (--max-deg)
+    float max_deg_up = 15.0f;    // upward  (--max-deg-up)
+    float max_deg_down = 40.0f;  // downward (--max-deg-down)
     // Elevation of the centre (ny=0) target in degrees, negative = below the
     // horizon (--center-deg). The centre dot is the calibration's straight-ahead
     // fixation point — the neutral gaze the tracker maps to zero. Kept at 0 so
@@ -83,10 +83,10 @@ struct EyeGeom {
 
 struct ViewGeometry {
     GazeRange gaze;
-    EyeGeom   eyes[2];
-    bool      synthetic = true;      // eyes are a generic stand-in, not the headset
-    bool      used_polygons = false; // lens-visibility polygons constrained the range
-    float     ellipse_scale = 1.0f;  // uniform shrink applied so the target ellipse is visible
+    EyeGeom eyes[2];
+    bool synthetic = true;       // eyes are a generic stand-in, not the headset
+    bool used_polygons = false;  // lens-visibility polygons constrained the range
+    float ellipse_scale = 1.0f;  // uniform shrink applied so the target ellipse is visible
 
     // Point on the plane z (default: the overlay plane) visible to both eyes.
     bool visible(float x, float y, float z) const;
@@ -107,8 +107,8 @@ inline constexpr float kTargetVisibleMargin = 0.05f;
 // polygons when the runtime provides them — shrinking the range only as much as
 // needed. Invalid polygons are discarded (with a note) rather than trusted.
 // Returns false (leaving `out` untouched) if the frusta cannot be resolved.
-bool compute_view_geometry(const EyeGeom eyes[2], float dist, const FovConfig& cfg,
-                           ViewGeometry& out, std::string* notes = nullptr);
+bool compute_view_geometry(const EyeGeom eyes[2], float dist, const FovConfig& cfg, ViewGeometry& out,
+                           std::string* notes = nullptr);
 
 // Generic ~95° headset run through the same policy (caps/coverage honoured).
 // Used until/unless the runtime's real geometry is known. gaze.valid == false.
@@ -118,7 +118,7 @@ ViewGeometry fallback_view_geometry(const FovConfig& cfg, float dist);
 // it is degenerate, non-finite, tiny, or does not contain the eye's own axis.
 bool sanitize_polygon(EyeGeom& eye, std::string* why = nullptr);
 
-bool  point_in_polygon(const std::vector<Vec2>& poly, float x, float y);
+bool point_in_polygon(const std::vector<Vec2>& poly, float x, float y);
 float polygon_area(const std::vector<Vec2>& poly);
 
 // Print the resolved gaze range (metres + degrees) — shared by every backend so

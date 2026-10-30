@@ -7,6 +7,7 @@ signal sequence, acks and process lifecycle. No VR runtime needed.
 
     python3 tests/protocol_test.py <path/to/EyeTrackVR-Overlay[.exe]>
 """
+
 import os
 import random
 import signal
@@ -31,8 +32,7 @@ def check(cond, msg):
 
 def launch(*args, **kw):
     cmd = [EXE, *args, "--backend=sim", f"--signal-port={SIG_PORT}", f"--cmd-port={CMD_PORT}"]
-    return subprocess.Popen(cmd, cwd=os.path.dirname(EXE), stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL, **kw)
+    return subprocess.Popen(cmd, cwd=os.path.dirname(EXE), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kw)
 
 
 class Link:
@@ -60,7 +60,7 @@ class Link:
             self.rx.settimeout(max(0.01, deadline - time.time()))
             try:
                 data, _ = self.rx.recvfrom(64)
-            except socket.timeout:
+            except TimeoutError:
                 break
             if len(data) < 4:
                 continue
@@ -101,7 +101,7 @@ def test_interactive():
         ok, _ = link.wait(255, 15)
         if not check(ok, "no ready (255) signal"):
             return
-        link.send(50, "Close your eyes\nlook around — résumé".encode("utf-8"))
+        link.send(50, "Close your eyes\nlook around — résumé".encode())
         time.sleep(0.3)
         link.send(98)
         link.drain()
@@ -221,10 +221,12 @@ def test_parent_watch():
     try:
         # An intermediate process launches the overlay and then exits: the
         # orphaned interactive overlay must notice and close itself.
-        code = ("import subprocess,sys,time\n"
-                f"subprocess.Popen({[EXE, 'interactive', '--backend=sim', f'--signal-port={SIG_PORT}', f'--cmd-port={CMD_PORT}']!r},"
-                " stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
-                "time.sleep(2.5)\n")
+        code = (
+            "import subprocess,sys,time\n"
+            f"subprocess.Popen({[EXE, 'interactive', '--backend=sim', f'--signal-port={SIG_PORT}', f'--cmd-port={CMD_PORT}']!r},"
+            " stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+            "time.sleep(2.5)\n"
+        )
         launcher = subprocess.Popen([sys.executable, "-c", code])
         ok, _ = link.wait(255, 15)
         check(ok, "orphan-to-be never became ready")
@@ -258,8 +260,7 @@ def main():
     if not EXE or not os.path.isfile(EXE):
         print("usage: protocol_test.py <overlay executable>")
         return 2
-    for t in (test_interactive, test_quit_mid_pass, test_takeover, test_finetune,
-              test_parent_watch, test_sigterm):
+    for t in (test_interactive, test_quit_mid_pass, test_takeover, test_finetune, test_parent_watch, test_sigterm):
         t()
     log = os.path.join(os.path.dirname(EXE), "eyetrackvr_overlay.log")
     if os.path.exists(log):

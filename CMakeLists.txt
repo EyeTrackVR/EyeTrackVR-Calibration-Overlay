@@ -114,7 +114,16 @@ if(ETVR_BUILD_TESTS)
     target_link_libraries(etvr_tests PRIVATE etvr_core)
     target_compile_definitions(etvr_tests PRIVATE
         ETVR_FONT="${PROJECT_SOURCE_DIR}/external/font/OpenSans-Regular.ttf")
-    add_test(NAME unit COMMAND etvr_tests)
+    foreach(suite i18n text geometry modes interactive session)
+        add_test(NAME unit.${suite} COMMAND etvr_tests ${suite})
+    endforeach()
+    # The layout sweep dominates the run time; shard it so `ctest -j` uses every core.
+    # Coprime with the six modes so every shard gets a mix of slow and fast ones.
+    set(ETVR_LAYOUT_SHARDS 7)
+    math(EXPR last_shard "${ETVR_LAYOUT_SHARDS} - 1")
+    foreach(shard RANGE ${last_shard})
+        add_test(NAME unit.layout.${shard} COMMAND etvr_tests layout ${shard}/${ETVR_LAYOUT_SHARDS})
+    endforeach()
 
     # End-to-end UDP protocol test against the real executable (simulator backend).
     find_package(Python3 COMPONENTS Interpreter)

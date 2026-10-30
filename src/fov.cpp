@@ -5,13 +5,13 @@
 #include <cmath>
 #include <iostream>
 #include <sstream>
+#include <utility>
 
 namespace {
 
 // Intersect one eye's view frustum with the plane z = -dist (head space) and
 // return the largest axis-aligned box inside the projected quad.
-bool eye_plane_box(const EyeGeom& eye, float dist,
-                   float& x0, float& x1, float& y0, float& y1) {
+bool eye_plane_box(const EyeGeom& eye, float dist, float& x0, float& x1, float& y0, float& y1) {
     // Frustum corners on the z = -1 plane in eye space: TL, TR, BR, BL.
     const float cx[4] = {eye.tan_left, eye.tan_right, eye.tan_right, eye.tan_left};
     const float cy[4] = {eye.tan_up, eye.tan_up, eye.tan_down, eye.tan_down};
@@ -25,10 +25,10 @@ bool eye_plane_box(const EyeGeom& eye, float dist,
         px[i] = o.x + s * d.x;
         py[i] = o.y + s * d.y;
     }
-    x0 = std::max(px[0], px[3]);   // tightest left edge
-    x1 = std::min(px[1], px[2]);   // tightest right edge
-    y0 = std::max(py[2], py[3]);   // tightest bottom edge
-    y1 = std::min(py[0], py[1]);   // tightest top edge
+    x0 = std::max(px[0], px[3]);  // tightest left edge
+    x1 = std::min(px[1], px[2]);  // tightest right edge
+    y0 = std::max(py[2], py[3]);  // tightest bottom edge
+    y1 = std::min(py[0], py[1]);  // tightest top edge
     if (!(x1 > x0) || !(y1 > y0)) return false;
 
     // With a rotated/canted eye the projected frustum is a slanted quad.
@@ -47,8 +47,7 @@ bool eye_plane_box(const EyeGeom& eye, float dist,
         return !(pos && neg);
     };
     auto box_inside = [&](float ax0, float ax1, float ay0, float ay1) {
-        return inside_quad(ax0, ay0) && inside_quad(ax0, ay1)
-            && inside_quad(ax1, ay0) && inside_quad(ax1, ay1);
+        return inside_quad(ax0, ay0) && inside_quad(ax0, ay1) && inside_quad(ax1, ay0) && inside_quad(ax1, ay1);
     };
     if (!box_inside(x0, x1, y0, y1)) {
         const float mx = (x0 + x1) * 0.5f, my = (y0 + y1) * 0.5f;
@@ -57,11 +56,15 @@ bool eye_plane_box(const EyeGeom& eye, float dist,
         float lo = 0.0f, hi = 1.0f;
         for (int i = 0; i < 24; ++i) {
             const float k = (lo + hi) * 0.5f;
-            if (box_inside(mx - hx * k, mx + hx * k, my - hy * k, my + hy * k)) lo = k;
-            else hi = k;
+            if (box_inside(mx - hx * k, mx + hx * k, my - hy * k, my + hy * k))
+                lo = k;
+            else
+                hi = k;
         }
-        x0 = mx - hx * lo; x1 = mx + hx * lo;
-        y0 = my - hy * lo; y1 = my + hy * lo;
+        x0 = mx - hx * lo;
+        x1 = mx + hx * lo;
+        y0 = my - hy * lo;
+        y1 = my + hy * lo;
     }
     return true;
 }
@@ -69,23 +72,21 @@ bool eye_plane_box(const EyeGeom& eye, float dist,
 bool finite(float v) { return std::isfinite(v); }
 
 bool eye_finite(const EyeGeom& e) {
-    return finite(e.tan_left) && finite(e.tan_right) && finite(e.tan_up) && finite(e.tan_down)
-        && finite(e.pose.p.x) && finite(e.pose.p.y) && finite(e.pose.p.z)
-        && finite(e.pose.q.x) && finite(e.pose.q.y) && finite(e.pose.q.z) && finite(e.pose.q.w)
-        && e.tan_left < e.tan_right && e.tan_down < e.tan_up;
+    return finite(e.tan_left) && finite(e.tan_right) && finite(e.tan_up) && finite(e.tan_down) && finite(e.pose.p.x) &&
+           finite(e.pose.p.y) && finite(e.pose.p.z) && finite(e.pose.q.x) && finite(e.pose.q.y) && finite(e.pose.q.z) &&
+           finite(e.pose.q.w) && e.tan_left < e.tan_right && e.tan_down < e.tan_up;
 }
 
 struct Attempt {
     GazeRange g;
-    float     ellipse_scale = 1.0f;
-    float     cardinal_trim = 1.0f;   // smallest cardinal extent ratio after visibility checks
+    float ellipse_scale = 1.0f;
+    float cardinal_trim = 1.0f;  // smallest cardinal extent ratio after visibility checks
 };
 
 // One pass of the placement policy over the given eyes.
 bool attempt(ViewGeometry& vg, float dist, const FovConfig& cfg, Attempt& out) {
     float lx0, lx1, ly0, ly1, rx0, rx1, ry0, ry1;
-    if (!eye_plane_box(vg.eyes[0], dist, lx0, lx1, ly0, ly1) ||
-        !eye_plane_box(vg.eyes[1], dist, rx0, rx1, ry0, ry1))
+    if (!eye_plane_box(vg.eyes[0], dist, lx0, lx1, ly0, ly1) || !eye_plane_box(vg.eyes[1], dist, rx0, rx1, ry0, ry1))
         return false;
 
     // Binocular region — visible to both eyes.
@@ -101,13 +102,13 @@ bool attempt(ViewGeometry& vg, float dist, const FovConfig& cfg, Attempt& out) {
     // like the Beyond, most wide-FOV HMDs), a symmetric cap about the display
     // centre pushes one row of targets past what the eyes can reach.
     const float cx = (x0 + x1) * 0.5f, cy = (y0 + y1) * 0.5f;
-    const float cap    = std::tan(cfg.max_deg * kDeg2Rad) * dist;
+    const float cap = std::tan(cfg.max_deg * kDeg2Rad) * dist;
     const float cap_up = std::tan(cfg.max_deg_up * kDeg2Rad) * dist;
     const float cap_dn = std::tan(cfg.max_deg_down * kDeg2Rad) * dist;
-    const float left  = std::max(cx + (x0 - cx) * cfg.coverage, -cap);
-    const float right = std::min(cx + (x1 - cx) * cfg.coverage,  cap);
-    const float bot   = std::max(cy + (y0 - cy) * cfg.coverage, -cap_dn);
-    const float top   = std::min(cy + (y1 - cy) * cfg.coverage,  cap_up);
+    const float left = std::max(cx + (x0 - cx) * cfg.coverage, -cap);
+    const float right = std::min(cx + (x1 - cx) * cfg.coverage, cap);
+    const float bot = std::max(cy + (y0 - cy) * cfg.coverage, -cap_dn);
+    const float top = std::min(cy + (y1 - cy) * cfg.coverage, cap_up);
     if (!(right > left) || !(top > bot)) return false;
 
     // Normalised gaze coordinates are training/calibration labels, so a given
@@ -126,7 +127,7 @@ bool attempt(ViewGeometry& vg, float dist, const FovConfig& cfg, Attempt& out) {
     // the sign-specific angular scale instead of assuming +/-ny are equal.
     const float want_cy = std::tan(cfg.center_deg * kDeg2Rad) * dist;
     g.center_y = std::clamp(want_cy, bot + 0.05f * (top - bot), top - 0.05f * (top - bot));
-    g.ry_up   = top - g.center_y;
+    g.ry_up = top - g.center_y;
     g.ry_down = g.center_y - bot;
     if (!(g.rx > 0.0f) || !(g.ry_up > 0.0f) || !(g.ry_down > 0.0f)) return false;
 
@@ -148,13 +149,16 @@ bool attempt(ViewGeometry& vg, float dist, const FovConfig& cfg, Attempt& out) {
         float lo = 0.0f, hi = len;
         for (int i = 0; i < 22; ++i) {
             const float mid = 0.5f * (lo + hi);
-            if (ok(mid)) lo = mid; else hi = mid;
+            if (ok(mid))
+                lo = mid;
+            else
+                hi = mid;
         }
         return lo;
     };
     const float rx_pre = g.rx, ru_pre = g.ry_up, rd_pre = g.ry_down;
-    g.rx      = std::min({g.rx, reach(1.0f, 0.0f, g.rx), reach(-1.0f, 0.0f, g.rx)});
-    g.ry_up   = reach(0.0f,  1.0f, g.ry_up);
+    g.rx = std::min({g.rx, reach(1.0f, 0.0f, g.rx), reach(-1.0f, 0.0f, g.rx)});
+    g.ry_up = reach(0.0f, 1.0f, g.ry_up);
     g.ry_down = reach(0.0f, -1.0f, g.ry_down);
     out.cardinal_trim = std::min({g.rx / rx_pre, g.ry_up / ru_pre, g.ry_down / rd_pre});
 
@@ -170,21 +174,29 @@ bool attempt(ViewGeometry& vg, float dist, const FovConfig& cfg, Attempt& out) {
         float lo = 0.0f, hi = s_min;
         for (int k = 0; k < 20; ++k) {
             const float mid = 0.5f * (lo + hi);
-            if (ok(mid)) lo = mid; else hi = mid;
+            if (ok(mid))
+                lo = mid;
+            else
+                hi = mid;
         }
         s_min = lo;
     }
-    g.rx *= s_min; g.ry_up *= s_min; g.ry_down *= s_min;
+    g.rx *= s_min;
+    g.ry_up *= s_min;
+    g.ry_down *= s_min;
     out.ellipse_scale = s_min;
     if (!(g.rx > 0.02f) || !(g.ry_up > 0.02f) || !(g.ry_down > 0.02f)) return false;
 
-    g.vis_left = x0; g.vis_right = x1; g.vis_bottom = y0; g.vis_top = y1;
+    g.vis_left = x0;
+    g.vis_right = x1;
+    g.vis_bottom = y0;
+    g.vis_top = y1;
     g.valid = true;
     out.g = g;
     return true;
 }
 
-} // namespace
+}  // namespace
 
 // ── Polygon helpers ───────────────────────────────────────────────────────────
 
@@ -205,8 +217,7 @@ bool point_in_polygon(const std::vector<Vec2>& poly, float x, float y) {
 float polygon_area(const std::vector<Vec2>& poly) {
     double a = 0.0;
     const size_t n = poly.size();
-    for (size_t i = 0, j = n - 1; i < n; j = i++)
-        a += (double)poly[j].x * poly[i].y - (double)poly[i].x * poly[j].y;
+    for (size_t i = 0, j = n - 1; i < n; j = i++) a += (double)poly[j].x * poly[i].y - (double)poly[i].x * poly[j].y;
     return (float)std::fabs(a * 0.5);
 }
 
@@ -245,9 +256,7 @@ bool ViewGeometry::visible(float x, float y, float z) const {
     return eyes[0].sees({x, y, z}) && eyes[1].sees({x, y, z});
 }
 
-bool ViewGeometry::visible(float x, float y) const {
-    return visible(x, y, -cfg::OVERLAY_DIST);
-}
+bool ViewGeometry::visible(float x, float y) const { return visible(x, y, -cfg::OVERLAY_DIST); }
 
 bool ViewGeometry::disc_visible(float x, float y, float r) const {
     if (!visible(x, y)) return false;
@@ -263,17 +272,15 @@ bool ViewGeometry::rect_visible(float x0, float y0, float x1, float y1, float z)
     for (int i = 0; i <= kSteps; ++i) {
         const float t = (float)i / kSteps;
         const float x = x0 + (x1 - x0) * t, y = y0 + (y1 - y0) * t;
-        if (!visible(x, y0, z) || !visible(x, y1, z) ||
-            !visible(x0, y, z) || !visible(x1, y, z))
-            return false;
+        if (!visible(x, y0, z) || !visible(x, y1, z) || !visible(x0, y, z) || !visible(x1, y, z)) return false;
     }
     return true;
 }
 
 // ── Policy ────────────────────────────────────────────────────────────────────
 
-bool compute_view_geometry(const EyeGeom eyes[2], float dist, const FovConfig& cfg,
-                           ViewGeometry& out, std::string* notes) {
+bool compute_view_geometry(const EyeGeom eyes[2], float dist, const FovConfig& cfg, ViewGeometry& out,
+                           std::string* notes) {
     std::ostringstream log;
     ViewGeometry vg;
     vg.synthetic = false;
@@ -310,23 +317,21 @@ bool compute_view_geometry(const EyeGeom eyes[2], float dist, const FovConfig& c
     vg.gaze = a.g;
     vg.used_polygons = !vg.eyes[0].visible.empty() || !vg.eyes[1].visible.empty();
     vg.ellipse_scale = a.ellipse_scale;
-    if (a.cardinal_trim < 0.999f)
-        log << "cardinal extents trimmed to stay visible (min " << a.cardinal_trim << "x); ";
-    if (a.ellipse_scale < 0.999f)
-        log << "range scaled " << a.ellipse_scale << "x so diagonal targets stay visible; ";
+    if (a.cardinal_trim < 0.999f) log << "cardinal extents trimmed to stay visible (min " << a.cardinal_trim << "x); ";
+    if (a.ellipse_scale < 0.999f) log << "range scaled " << a.ellipse_scale << "x so diagonal targets stay visible; ";
     if (notes) *notes = log.str();
-    out = vg;
+    out = std::move(vg);
     return true;
 }
 
 ViewGeometry fallback_view_geometry(const FovConfig& cfg, float dist) {
     EyeGeom eyes[2];
     for (int e = 0; e < 2; ++e) {
-        eyes[e].pose.p    = {e ? 0.0315f : -0.0315f, 0.0f, 0.0f};
-        eyes[e].tan_left  = -std::tan(47.0f * kDeg2Rad);
-        eyes[e].tan_right =  std::tan(47.0f * kDeg2Rad);
-        eyes[e].tan_up    =  std::tan(42.0f * kDeg2Rad);
-        eyes[e].tan_down  = -std::tan(47.0f * kDeg2Rad);
+        eyes[e].pose.p = {e ? 0.0315f : -0.0315f, 0.0f, 0.0f};
+        eyes[e].tan_left = -std::tan(47.0f * kDeg2Rad);
+        eyes[e].tan_right = std::tan(47.0f * kDeg2Rad);
+        eyes[e].tan_up = std::tan(42.0f * kDeg2Rad);
+        eyes[e].tan_down = -std::tan(47.0f * kDeg2Rad);
     }
     ViewGeometry vg;
     if (!compute_view_geometry(eyes, dist, cfg, vg)) {
@@ -341,31 +346,24 @@ ViewGeometry fallback_view_geometry(const FovConfig& cfg, float dist) {
 
 void log_eye(const char* tag, const EyeGeom& e) {
     const Vec3 fwd = rotate(e.pose.q, {0.0f, 0.0f, -1.0f});
-    std::cout << "[INFO] Eye " << tag << ": fov L/R "
-              << std::atan(e.tan_left) * kRad2Deg << "/" << std::atan(e.tan_right) * kRad2Deg
-              << "° up/down " << std::atan(e.tan_up) * kRad2Deg << "/"
+    std::cout << "[INFO] Eye " << tag << ": fov L/R " << std::atan(e.tan_left) * kRad2Deg << "/"
+              << std::atan(e.tan_right) * kRad2Deg << "° up/down " << std::atan(e.tan_up) * kRad2Deg << "/"
               << std::atan(e.tan_down) * kRad2Deg << "°, cant pitch/yaw "
-              << std::asin(std::clamp(fwd.y, -1.0f, 1.0f)) * kRad2Deg << "/"
-              << std::atan2(-fwd.x, -fwd.z) * kRad2Deg << "°, pos ("
-              << e.pose.p.x << ", " << e.pose.p.y << ", " << e.pose.p.z << "), lens polygon "
-              << (e.visible.empty() ? std::string("none")
-                                    : std::to_string(e.visible.size()) + " verts")
-              << "\n";
+              << std::asin(std::clamp(fwd.y, -1.0f, 1.0f)) * kRad2Deg << "/" << std::atan2(-fwd.x, -fwd.z) * kRad2Deg
+              << "°, pos (" << e.pose.p.x << ", " << e.pose.p.y << ", " << e.pose.p.z << "), lens polygon "
+              << (e.visible.empty() ? std::string("none") : std::to_string(e.visible.size()) + " verts") << "\n";
 }
 
 void log_view_geometry(const ViewGeometry& vg, const FovConfig& cfg, float dist) {
     const GazeRange& g = vg.gaze;
     auto deg = [&](float m) { return std::atan(m / dist) * kRad2Deg; };
-    std::cout << "[INFO] Binocular FOV at " << dist << " m: visible box x "
-              << deg(g.vis_left) << "°.." << deg(g.vis_right) << "°, y "
-              << deg(g.vis_bottom) << "°.." << deg(g.vis_top) << "°\n";
-    std::cout << "[INFO] Gaze range" << (vg.synthetic ? " (FALLBACK - no headset geometry)" : "")
-              << ": centre=(" << g.center_x << ", " << g.center_y << ") m ("
-              << deg(g.center_y) << "° elev)  ±" << g.rx << " m (±" << deg(g.rx)
-              << "°) x +" << g.ry_up << "/-" << g.ry_down << " m ("
-              << deg(g.center_y + g.ry_up) << "°.." << deg(g.center_y - g.ry_down)
-              << "° elev)  coverage=" << cfg.coverage << "  cap=" << cfg.max_deg << "° lat/"
-              << cfg.max_deg_up << "° up/" << cfg.max_deg_down << "° down  lens-polygons="
-              << (vg.used_polygons ? "yes" : "no") << "  ellipse-scale=" << vg.ellipse_scale
+    std::cout << "[INFO] Binocular FOV at " << dist << " m: visible box x " << deg(g.vis_left) << "°.."
+              << deg(g.vis_right) << "°, y " << deg(g.vis_bottom) << "°.." << deg(g.vis_top) << "°\n";
+    std::cout << "[INFO] Gaze range" << (vg.synthetic ? " (FALLBACK - no headset geometry)" : "") << ": centre=("
+              << g.center_x << ", " << g.center_y << ") m (" << deg(g.center_y) << "° elev)  ±" << g.rx << " m (±"
+              << deg(g.rx) << "°) x +" << g.ry_up << "/-" << g.ry_down << " m (" << deg(g.center_y + g.ry_up) << "°.."
+              << deg(g.center_y - g.ry_down) << "° elev)  coverage=" << cfg.coverage << "  cap=" << cfg.max_deg
+              << "° lat/" << cfg.max_deg_up << "° up/" << cfg.max_deg_down
+              << "° down  lens-polygons=" << (vg.used_polygons ? "yes" : "no") << "  ellipse-scale=" << vg.ellipse_scale
               << "\n";
 }

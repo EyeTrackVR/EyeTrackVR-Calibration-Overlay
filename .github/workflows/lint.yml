@@ -1,0 +1,63 @@
+name: Lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_LOCKED: 1
+
+jobs:
+  lint:
+    name: ${{ matrix.run }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        run:
+          - actionlint
+          - zizmor .github
+          - clang-format --dry-run --Werror src/* tests/*.cpp
+          - ruff check
+          - ruff format --check
+          - shellcheck $(git ls-files '*.sh')
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: uv run ${{ matrix.run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  clang-tidy:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: .github/scripts/fetch-openvr.sh linux64
+      - run: sudo apt-get update -q && sudo apt-get install -q -y --no-install-recommends libopenxr-dev libvulkan-dev libstb-dev
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+      # Skips the vendored stb implementation.
+      - run: uv run run-clang-tidy.py -quiet -p build '/(src|tests)/(?!stb_image_write)'
+
+  # The one check for branch protection to require.
+  all-checks:
+    name: Lint passed
+    if: always()
+    needs: [lint, clang-tidy]
+    runs-on: ubuntu-24.04
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

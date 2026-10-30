@@ -15,6 +15,7 @@ while IFS= read -r lib; do
     install -m 0644 "$lib" "$PACKAGE/$(basename "$lib")"
 done < <(ldd "$BUILD/EyeTrackVR-Overlay" | awk '/lib(openvr_api|openxr_loader|jsoncpp|vulkan).* =>/ {print $3}')
 for lib in "$PACKAGE"/*.so*; do
+    # shellcheck disable=SC2016 # $ORIGIN is expanded by the dynamic linker, not the shell.
     patchelf --set-rpath '$ORIGIN' "$lib"
 done
 install -m 0644 "$ROOT/LICENSE" "$PACKAGE/licenses/overlay-MIT.txt"

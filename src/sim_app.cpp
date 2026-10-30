@@ -11,7 +11,6 @@
 #include <iostream>
 #include <thread>
 
-#define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 
 namespace {
@@ -21,7 +20,9 @@ double wall_s() {
     return duration<double>(steady_clock::now().time_since_epoch()).count();
 }
 
-struct Rgbf { float r, g, b; };
+struct Rgbf {
+    float r, g, b;
+};
 
 // Bilinear sample of a straight-alpha image, returned premultiplied.
 void sample(const Image& img, float u, float v, float& r, float& g, float& b, float& a) {
@@ -35,7 +36,10 @@ void sample(const Image& img, float u, float v, float& r, float& g, float& b, fl
             const float wgt = (i ? fx : 1.0f - fx) * (j ? fy : 1.0f - fy);
             const uint8_t* p = &img.rgba[((size_t)yi * img.w + xi) * 4];
             const float pa = p[3] / 255.0f * wgt;
-            r += p[0] * pa; g += p[1] * pa; b += p[2] * pa; a += pa;
+            r += p[0] * pa;
+            g += p[1] * pa;
+            b += p[2] * pa;
+            a += pa;
         }
 }
 
@@ -53,13 +57,16 @@ void composite(Rgbf& dst, const Quad& q, const Image* img, Vec3 o, Vec3 d) {
     if (u < 0.0f || u >= 1.0f || v < 0.0f || v >= 1.0f) return;
     float r, g, b, a;
     sample(*img, u, v, r, g, b, a);
-    r *= q.alpha; g *= q.alpha; b *= q.alpha; a *= q.alpha;
+    r *= q.alpha;
+    g *= q.alpha;
+    b *= q.alpha;
+    a *= q.alpha;
     dst.r = r + dst.r * (1.0f - a);
     dst.g = g + dst.g * (1.0f - a);
     dst.b = b + dst.b * (1.0f - a);
 }
 
-} // namespace
+}  // namespace
 
 bool SimApp::init(const FovConfig& fov_cfg) {
     fov_cfg_ = fov_cfg;
@@ -90,9 +97,7 @@ bool SimApp::init(const FovConfig& fov_cfg) {
 
 void SimApp::shutdown() {}
 
-bool SimApp::poll_events() {
-    return !(opt_.max_seconds > 0.0 && t_ >= opt_.max_seconds);
-}
+bool SimApp::poll_events() { return !(opt_.max_seconds > 0.0 && t_ >= opt_.max_seconds); }
 
 bool SimApp::frame(const std::function<Frame(double, const ViewGeometry&)>& update_cb) {
     constexpr double kStep = 1.0 / 90.0;
@@ -124,8 +129,8 @@ bool SimApp::frame(const std::function<Frame(double, const ViewGeometry&)>& upda
     return true;
 }
 
-void SimApp::render(const Frame& f, const ViewGeometry& g, int eye_px, bool debug,
-                    std::vector<uint8_t>& rgb, int& w, int& h) {
+void SimApp::render(const Frame& f, const ViewGeometry& g, int eye_px, bool debug, std::vector<uint8_t>& rgb, int& w,
+                    int& h) {
     // Common vertical scale so both eyes share a height.
     float span_y = 0.0f;
     for (const auto& e : g.eyes) span_y = std::max(span_y, e.tan_up - e.tan_down);
@@ -148,8 +153,10 @@ void SimApp::render(const Frame& f, const ViewGeometry& g, int eye_px, bool debu
                 const Vec3 o = eye.pose.p;
 
                 // "Game" behind the backdrop: a dim blue grid.
-                const float az = std::atan2(d.x, -d.z) * kRad2Deg, el = std::atan2(d.y, std::hypot(d.x, d.z)) * kRad2Deg;
-                const bool line = std::fmod(std::fabs(az) + 0.4f, 10.0f) < 0.8f || std::fmod(std::fabs(el) + 0.4f, 10.0f) < 0.8f;
+                const float az = std::atan2(d.x, -d.z) * kRad2Deg,
+                            el = std::atan2(d.y, std::hypot(d.x, d.z)) * kRad2Deg;
+                const bool line =
+                    std::fmod(std::fabs(az) + 0.4f, 10.0f) < 0.8f || std::fmod(std::fabs(el) + 0.4f, 10.0f) < 0.8f;
                 Rgbf c = line ? Rgbf{70, 110, 160} : Rgbf{24, 40, 66};
                 const float ba = std::clamp(f.backdrop_alpha, 0.0f, 1.0f);
                 c.r += (f.backdrop_gray - c.r) * ba;
@@ -167,11 +174,14 @@ void SimApp::render(const Frame& f, const ViewGeometry& g, int eye_px, bool debu
                     const float nx = (x - gz.center_x) / gz.rx;
                     const float ny = (y - gz.center_y) / (y >= gz.center_y ? gz.ry_up : gz.ry_down);
                     const float r = std::hypot(nx, ny);
-                    if (std::fabs(r - 1.0f) < 0.006f || std::fabs(r - 0.88f) < 0.004f)
-                        c = {0, 200, 220};
+                    if (std::fabs(r - 1.0f) < 0.006f || std::fabs(r - 0.88f) < 0.004f) c = {0, 200, 220};
                 }
                 // Outside this eye's lens-visible region: show it dimmed.
-                if (!eye.contains_tangent(tx, ty)) { c.r *= 0.25f; c.g *= 0.25f; c.b *= 0.25f; }
+                if (!eye.contains_tangent(tx, ty)) {
+                    c.r *= 0.25f;
+                    c.g *= 0.25f;
+                    c.b *= 0.25f;
+                }
 
                 uint8_t* p = &rgb[((size_t)py * w + ox + px) * 3];
                 p[0] = (uint8_t)std::clamp(c.r, 0.0f, 255.0f);

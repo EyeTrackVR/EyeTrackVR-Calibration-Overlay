@@ -31,18 +31,18 @@ public:
     bool steamvr_running() const { return steamvr_running_; }
 
 private:
-    bool         steamvr_running_ = false;
+    bool steamvr_running_ = false;
 #ifdef HAVE_OPENVR
     struct Overlay {
         vr::VROverlayHandle_t h = vr::k_ulOverlayHandleInvalid;
-        bool     shown   = false;
-        float    alpha   = -1.0f;
-        float    width   = -1.0f;
-        float    texel_aspect = 1.0f;
-        float    rot     = 0.0f;
-        float    x = 1e9f, y = 1e9f, z = 1e9f;
-        uint64_t version = 0;          // uploaded Image::version
-        uint64_t failed_version = 0;   // last version whose upload failed (log once)
+        bool shown = false;
+        float alpha = -1.0f;
+        float width = -1.0f;
+        float texel_aspect = 1.0f;
+        float rot = 0.0f;
+        float x = 1e9f, y = 1e9f, z = 1e9f;
+        uint64_t version = 0;         // uploaded Image::version
+        uint64_t failed_version = 0;  // last version whose upload failed (log once)
     };
 
     // Resolve the binocular gaze range from the runtime's per-eye projection,
@@ -55,21 +55,21 @@ private:
     void destroy_all();
 
     vr::IVRSystem* sys_ = nullptr;
-    Overlay        bg_[5];          // grey backdrop: front, left, right, top, bottom
-    Overlay        panel_, ring_, trail_, dot_;
-    uint8_t        bg_gray_  = 0;
-    float          bg_alpha_ = -1.0f;
-    bool           bg_shown_ = false;
-    std::string    key_prefix_;
-    bool           geom_dirty_ = false;
-    double         next_geom_try_ = 0.0;
-    int            sync_failures_ = 0;
-    double         next_sync_retry_ = 0.0;
-    bool           geom_warned_ = false;
+    Overlay bg_[5];  // grey backdrop: front, left, right, top, bottom
+    Overlay panel_, ring_, trail_, dot_;
+    uint8_t bg_gray_ = 0;
+    float bg_alpha_ = -1.0f;
+    bool bg_shown_ = false;
+    std::string key_prefix_;
+    bool geom_dirty_ = false;
+    double next_geom_try_ = 0.0;
+    int sync_failures_ = 0;
+    double next_sync_retry_ = 0.0;
+    bool geom_warned_ = false;
 #endif
 
-    FovConfig    fov_cfg_;
+    FovConfig fov_cfg_;
     ViewGeometry geom_;
-    bool         first_frame_ = true;
-    double       prev_secs_   = 0.0;
+    bool first_frame_ = true;
+    double prev_secs_ = 0.0;
 };

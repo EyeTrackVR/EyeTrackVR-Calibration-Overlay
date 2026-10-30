@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <iostream>
 #include <sstream>
+#include <utility>
 #include <string>
 #include <thread>
 #include <vector>
@@ -35,10 +36,18 @@ double now_s() {
 vr::HmdMatrix34_t make_pose(const Quat& q, Vec3 p) {
     const float x = q.x, y = q.y, z = q.z, w = q.w;
     vr::HmdMatrix34_t m{};
-    m.m[0][0] = 1 - 2 * (y * y + z * z); m.m[0][1] = 2 * (x * y - z * w);     m.m[0][2] = 2 * (x * z + y * w);
-    m.m[1][0] = 2 * (x * y + z * w);     m.m[1][1] = 1 - 2 * (x * x + z * z); m.m[1][2] = 2 * (y * z - x * w);
-    m.m[2][0] = 2 * (x * z - y * w);     m.m[2][1] = 2 * (y * z + x * w);     m.m[2][2] = 1 - 2 * (x * x + y * y);
-    m.m[0][3] = p.x; m.m[1][3] = p.y; m.m[2][3] = p.z;
+    m.m[0][0] = 1 - 2 * (y * y + z * z);
+    m.m[0][1] = 2 * (x * y - z * w);
+    m.m[0][2] = 2 * (x * z + y * w);
+    m.m[1][0] = 2 * (x * y + z * w);
+    m.m[1][1] = 1 - 2 * (x * x + z * z);
+    m.m[1][2] = 2 * (y * z - x * w);
+    m.m[2][0] = 2 * (x * z - y * w);
+    m.m[2][1] = 2 * (y * z + x * w);
+    m.m[2][2] = 1 - 2 * (x * x + y * y);
+    m.m[0][3] = p.x;
+    m.m[1][3] = p.y;
+    m.m[2][3] = p.z;
     return m;
 }
 
@@ -94,13 +103,10 @@ Quat quat_from_ovr(const vr::HmdMatrix34_t& m) {
 // has no distortion map (e.g. streamed HMDs that undistort on device — there
 // the render frustum already matches the visible FOV) or the result is not
 // plausible (some drivers return identity/garbage maps).
-bool shrink_to_visible(vr::IVRSystem* sys, vr::EVREye eye,
-                       float& tanL, float& tanR, float& tanUp, float& tanDn) {
+bool shrink_to_visible(vr::IVRSystem* sys, vr::EVREye eye, float& tanL, float& tanR, float& tanUp, float& tanDn) {
     vr::DistortionCoordinates_t top{}, bot{}, lef{}, rig{};
-    if (!sys->ComputeDistortion(eye, 0.5f, 0.0f, &top) ||
-        !sys->ComputeDistortion(eye, 0.5f, 1.0f, &bot) ||
-        !sys->ComputeDistortion(eye, 0.0f, 0.5f, &lef) ||
-        !sys->ComputeDistortion(eye, 1.0f, 0.5f, &rig))
+    if (!sys->ComputeDistortion(eye, 0.5f, 0.0f, &top) || !sys->ComputeDistortion(eye, 0.5f, 1.0f, &bot) ||
+        !sys->ComputeDistortion(eye, 0.0f, 0.5f, &lef) || !sys->ComputeDistortion(eye, 1.0f, 0.5f, &rig))
         return false;
     // A panel edge can map outside the render target (it shows past the
     // rendered image); the target's own edge bounds visibility there.
@@ -115,17 +121,19 @@ bool shrink_to_visible(vr::IVRSystem* sys, vr::EVREye eye,
     // The visible region must contain the eye axis and keep most of each side;
     // anything else is a driver quirk, not optics.
     if (!(nl < 0.0f && nr > 0.0f && nu > 0.0f && nd < 0.0f)) return false;
-    if (nl > 0.55f * tanL || nr < 0.55f * tanR || nu < 0.55f * tanUp || nd > 0.55f * tanDn)
-        return false;
-    tanL = nl; tanR = nr; tanUp = nu; tanDn = nd;
+    if (nl > 0.55f * tanL || nr < 0.55f * tanR || nu < 0.55f * tanUp || nd > 0.55f * tanDn) return false;
+    tanL = nl;
+    tanR = nr;
+    tanUp = nu;
+    tanDn = nd;
     return true;
 }
 
 // Lens-visible region from the hidden-area line loop, converted from render
 // target UV (u right, v down — the texture convention every OpenVR UV uses)
 // to Y-up tangents of the raw frustum. Validated later by sanitize_polygon().
-std::vector<Vec2> visible_polygon(vr::IVRSystem* sys, vr::EVREye eye,
-                                  float tanL, float tanR, float tanUp, float tanDn) {
+std::vector<Vec2> visible_polygon(vr::IVRSystem* sys, vr::EVREye eye, float tanL, float tanR, float tanUp,
+                                  float tanDn) {
     std::vector<Vec2> poly;
     const vr::HiddenAreaMesh_t mesh = sys->GetHiddenAreaMesh(eye, vr::k_eHiddenAreaMesh_LineLoop);
     if (!mesh.pVertexData || mesh.unTriangleCount < 3 || mesh.unTriangleCount > 100000) return poly;
@@ -139,7 +147,7 @@ std::vector<Vec2> visible_polygon(vr::IVRSystem* sys, vr::EVREye eye,
 
 constexpr float kDeg = kRad2Deg;
 
-} // namespace
+}  // namespace
 
 bool OvrApp::init(const FovConfig& fov_cfg) {
     fov_cfg_ = fov_cfg;
@@ -151,8 +159,7 @@ bool OvrApp::init(const FovConfig& fov_cfg) {
     vr::EVRInitError ie = vr::VRInitError_None;
     sys_ = vr::VR_Init(&ie, vr::VRApplication_Background);
     if (ie != vr::VRInitError_None || !sys_) {
-        std::cout << "[INFO] OpenVR/SteamVR not running ("
-                  << vr::VR_GetVRInitErrorAsSymbol(ie) << ")\n";
+        std::cout << "[INFO] OpenVR/SteamVR not running (" << vr::VR_GetVRInitErrorAsSymbol(ie) << ")\n";
         sys_ = nullptr;
         return false;
     }
@@ -170,7 +177,10 @@ bool OvrApp::init(const FovConfig& fov_cfg) {
     const double wait_until = now_s() + 3.0;
     bool announced = false;
     while (!sys_->IsTrackedDeviceConnected(vr::k_unTrackedDeviceIndex_Hmd) && now_s() < wait_until) {
-        if (!announced) { std::cout << "[INFO] Waiting for the headset to connect...\n"; announced = true; }
+        if (!announced) {
+            std::cout << "[INFO] Waiting for the headset to connect...\n";
+            announced = true;
+        }
         vr::VREvent_t ev;
         while (sys_->PollNextEvent(&ev, sizeof(ev))) {
             if (ev.eventType == vr::VREvent_Quit) {
@@ -183,8 +193,7 @@ bool OvrApp::init(const FovConfig& fov_cfg) {
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
-    if (!compute_geometry())
-        std::cout << "[WARN] Headset geometry unavailable; using a generic FOV until it is\n";
+    if (!compute_geometry()) std::cout << "[WARN] Headset geometry unavailable; using a generic FOV until it is\n";
 
     // Opaque grey backdrop: five faces of a cube around the head, so it fills
     // the view on any FOV (a single quad could not cover >~140° headsets).
@@ -192,26 +201,33 @@ bool OvrApp::init(const FovConfig& fov_cfg) {
     // leaving the running game alive underneath.
     static const char* kFaces[5] = {"bg.front", "bg.left", "bg.right", "bg.top", "bg.bottom"};
     for (int i = 0; i < 5; ++i)
-        if (!create(kFaces[i], 0, bg_[i])) { destroy_all(); vr::VR_Shutdown(); sys_ = nullptr; return false; }
+        if (!create(kFaces[i], 0, bg_[i])) {
+            destroy_all();
+            vr::VR_Shutdown();
+            sys_ = nullptr;
+            return false;
+        }
     const float d = cfg::BACKDROP_DIST;
     const Quat face_q[5] = {
         Quat{},
-        quat_axis_angle({0, 1, 0},  90.0f * kDeg2Rad),
+        quat_axis_angle({0, 1, 0}, 90.0f * kDeg2Rad),
         quat_axis_angle({0, 1, 0}, -90.0f * kDeg2Rad),
-        quat_axis_angle({1, 0, 0},  90.0f * kDeg2Rad),
+        quat_axis_angle({1, 0, 0}, 90.0f * kDeg2Rad),
         quat_axis_angle({1, 0, 0}, -90.0f * kDeg2Rad),
     };
     const Vec3 face_p[5] = {{0, 0, -d}, {-d, 0, 0}, {d, 0, 0}, {0, d, 0}, {0, -d, 0}};
     for (int i = 0; i < 5; ++i) {
         vr::VROverlay()->SetOverlayWidthInMeters(bg_[i].h, 2.0f * d * 1.02f);
         const vr::HmdMatrix34_t m = make_pose(face_q[i], face_p[i]);
-        vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(
-            bg_[i].h, vr::k_unTrackedDeviceIndex_Hmd, &m);
+        vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(bg_[i].h, vr::k_unTrackedDeviceIndex_Hmd, &m);
     }
 
     if (!create("panel", 1, panel_) || !create("ring", 2, ring_) || !create("trail", 3, trail_) ||
         !create("dot", 4, dot_)) {
-        destroy_all(); vr::VR_Shutdown(); sys_ = nullptr; return false;
+        destroy_all();
+        vr::VR_Shutdown();
+        sys_ = nullptr;
+        return false;
     }
 
     std::cout << "[INFO] OpenVR overlay backend ready (calibrating over the running app)\n";
@@ -243,8 +259,8 @@ bool OvrApp::compute_geometry() {
         sys_->GetProjectionRaw(ids[e], &l, &r, &t, &b);
         if (!std::isfinite(l + r + t + b) || l == r || t == b) {
             if (!geom_warned_)
-                std::cout << "[WARN] Eye " << e << " projection is unusable (" << l << ", " << r
-                          << ", " << t << ", " << b << ")\n";
+                std::cout << "[WARN] Eye " << e << " projection is unusable (" << l << ", " << r << ", " << t << ", "
+                          << b << ")\n";
             geom_warned_ = true;
             return false;
         }
@@ -259,15 +275,20 @@ bool OvrApp::compute_geometry() {
         // tangent under either labelling, so a driver that fills the pair the
         // other way round cannot mirror the FOV again.
         const float tanL = std::min(l, r), tanR = std::max(l, r);
-        float tanUp = b, tanDn = t;   // documented order
-        if ((t < 0.0f) != (b < 0.0f)) { tanUp = std::max(t, b); tanDn = std::min(t, b); }
+        float tanUp = b, tanDn = t;  // documented order
+        if ((t < 0.0f) != (b < 0.0f)) {
+            tanUp = std::max(t, b);
+            tanDn = std::min(t, b);
+        }
         float vl = tanL, vr = tanR, vu = tanUp, vd = tanDn;
 
         // Shrink the (overgrown) render frustum to the lens-visible region.
         const bool vis = shrink_to_visible(sys_, ids[e], vl, vr, vu, vd);
 
-        eyes[e].tan_left = vl; eyes[e].tan_right = vr;
-        eyes[e].tan_up = vu;   eyes[e].tan_down = vd;
+        eyes[e].tan_left = vl;
+        eyes[e].tan_right = vr;
+        eyes[e].tan_up = vu;
+        eyes[e].tan_down = vd;
         eyes[e].visible = visible_polygon(sys_, ids[e], tanL, tanR, tanUp, tanDn);
 
         // Full pose: canted displays put a real rotation in eye-to-head, and
@@ -276,31 +297,29 @@ bool OvrApp::compute_geometry() {
         eyes[e].pose.p = {m.m[0][3], m.m[1][3], m.m[2][3]};
         eyes[e].pose.q = quat_from_ovr(m);
 
-        eye_log << "[INFO] Eye " << (e ? "R" : "L") << ": raw fov L/R "
-                << std::atan(tanL) * kDeg << "/" << std::atan(tanR) * kDeg << "° up/down "
-                << std::atan(tanUp) * kDeg << "/" << std::atan(tanDn) * kDeg << "°"
-                << (vis ? " -> visible (distortion map)" : " (no usable distortion map)") << "\n";
+        eye_log << "[INFO] Eye " << (e ? "R" : "L") << ": raw fov L/R " << std::atan(tanL) * kDeg << "/"
+                << std::atan(tanR) * kDeg << "° up/down " << std::atan(tanUp) * kDeg << "/" << std::atan(tanDn) * kDeg
+                << "°" << (vis ? " -> visible (distortion map)" : " (no usable distortion map)") << "\n";
     }
 
     std::string notes;
     ViewGeometry g;
     if (!compute_view_geometry(eyes, cfg::OVERLAY_DIST, fov_cfg_, g, &notes)) {
-        if (!geom_warned_)
-            std::cout << eye_log.str() << "[WARN] Could not resolve a gaze range: " << notes << "\n";
+        if (!geom_warned_) std::cout << eye_log.str() << "[WARN] Could not resolve a gaze range: " << notes << "\n";
         geom_warned_ = true;
         return false;
     }
     // Re-resolved after an event but nothing moved: keep quiet.
     const GazeRange& o = geom_.gaze;
-    const bool same = !geom_.synthetic &&
-        std::fabs(o.rx - g.gaze.rx) < 1e-4f && std::fabs(o.ry_up - g.gaze.ry_up) < 1e-4f &&
-        std::fabs(o.ry_down - g.gaze.ry_down) < 1e-4f && std::fabs(o.center_y - g.gaze.center_y) < 1e-4f;
+    const bool same = !geom_.synthetic && std::fabs(o.rx - g.gaze.rx) < 1e-4f &&
+                      std::fabs(o.ry_up - g.gaze.ry_up) < 1e-4f && std::fabs(o.ry_down - g.gaze.ry_down) < 1e-4f &&
+                      std::fabs(o.center_y - g.gaze.center_y) < 1e-4f;
     if (same) return true;
     std::cout << eye_log.str();
     for (int e = 0; e < 2; ++e) log_eye(e ? "R" : "L", g.eyes[e]);
     if (!notes.empty()) std::cout << "[INFO] Geometry: " << notes << "\n";
     if (!geom_.synthetic) std::cout << "[INFO] Headset geometry changed; targets follow the new range\n";
-    geom_ = g;
+    geom_ = std::move(g);
     log_view_geometry(geom_, fov_cfg_, cfg::OVERLAY_DIST);
     return true;
 }
@@ -310,18 +329,18 @@ bool OvrApp::poll_events() {
     vr::VREvent_t ev;
     while (sys_->PollNextEvent(&ev, sizeof(ev))) {
         switch (ev.eventType) {
-        case vr::VREvent_Quit:
-            std::cout << "[INFO] SteamVR is shutting down\n";
-            sys_->AcknowledgeQuit_Exiting();
-            return false;
-        case vr::VREvent_IpdChanged:
-            geom_dirty_ = true;
-            break;
-        case vr::VREvent_TrackedDeviceActivated:
-            if (ev.trackedDeviceIndex == vr::k_unTrackedDeviceIndex_Hmd) geom_dirty_ = true;
-            break;
-        default:
-            break;
+            case vr::VREvent_Quit:
+                std::cout << "[INFO] SteamVR is shutting down\n";
+                sys_->AcknowledgeQuit_Exiting();
+                return false;
+            case vr::VREvent_IpdChanged:
+                geom_dirty_ = true;
+                break;
+            case vr::VREvent_TrackedDeviceActivated:
+                if (ev.trackedDeviceIndex == vr::k_unTrackedDeviceIndex_Hmd) geom_dirty_ = true;
+                break;
+            default:
+                break;
         }
     }
     return true;
@@ -330,12 +349,15 @@ bool OvrApp::poll_events() {
 void OvrApp::apply(Overlay& o, const Quad& q, const Image* img) {
     auto* ov = vr::VROverlay();
     if (!q.visible || q.alpha <= 0.002f || !img || img->w <= 0) {
-        if (o.shown) { ov->HideOverlay(o.h); o.shown = false; }
+        if (o.shown) {
+            ov->HideOverlay(o.h);
+            o.shown = false;
+        }
         return;
     }
     if (img->version != o.version) {
-        const vr::EVROverlayError e = ov->SetOverlayRaw(
-            o.h, (void*)img->rgba.data(), (uint32_t)img->w, (uint32_t)img->h, 4);
+        const vr::EVROverlayError e =
+            ov->SetOverlayRaw(o.h, (void*)img->rgba.data(), (uint32_t)img->w, (uint32_t)img->h, 4);
         if (e == vr::VROverlayError_None) {
             o.version = img->version;
         } else {
@@ -348,7 +370,10 @@ void OvrApp::apply(Overlay& o, const Quad& q, const Image* img) {
             if (!o.shown) return;
         }
     }
-    if (std::fabs(q.w - o.width) > 1e-5f) { ov->SetOverlayWidthInMeters(o.h, q.w); o.width = q.w; }
+    if (std::fabs(q.w - o.width) > 1e-5f) {
+        ov->SetOverlayWidthInMeters(o.h, q.w);
+        o.width = q.w;
+    }
     // Overlay height follows the texture's aspect; stretched quads (the trail)
     // get there by widening the texels instead.
     const float aspect = q.h > 0.0f ? (q.w * img->h) / (q.h * img->w) : 1.0f;
@@ -356,13 +381,22 @@ void OvrApp::apply(Overlay& o, const Quad& q, const Image* img) {
         ov->SetOverlayTexelAspect(o.h, aspect);
         o.texel_aspect = aspect;
     }
-    if (std::fabs(q.alpha - o.alpha) > 1.0f / 512.0f) { ov->SetOverlayAlpha(o.h, q.alpha); o.alpha = q.alpha; }
+    if (std::fabs(q.alpha - o.alpha) > 1.0f / 512.0f) {
+        ov->SetOverlayAlpha(o.h, q.alpha);
+        o.alpha = q.alpha;
+    }
     if (q.x != o.x || q.y != o.y || q.z != o.z || q.rot != o.rot) {
         const vr::HmdMatrix34_t m = make_pose(quat_axis_angle({0.0f, 0.0f, 1.0f}, q.rot), {q.x, q.y, q.z});
         ov->SetOverlayTransformTrackedDeviceRelative(o.h, vr::k_unTrackedDeviceIndex_Hmd, &m);
-        o.x = q.x; o.y = q.y; o.z = q.z; o.rot = q.rot;
+        o.x = q.x;
+        o.y = q.y;
+        o.z = q.z;
+        o.rot = q.rot;
     }
-    if (!o.shown) { ov->ShowOverlay(o.h); o.shown = true; }
+    if (!o.shown) {
+        ov->ShowOverlay(o.h);
+        o.shown = true;
+    }
 }
 
 void OvrApp::apply_backdrop(uint8_t gray, float alpha) {
@@ -377,7 +411,10 @@ void OvrApp::apply_backdrop(uint8_t gray, float alpha) {
         for (auto& f : bg_) ov->SetOverlayRaw(f.h, px, 4, 4, 4);
     }
     if (alpha <= 0.002f) {
-        if (bg_shown_) { for (auto& f : bg_) ov->HideOverlay(f.h); bg_shown_ = false; }
+        if (bg_shown_) {
+            for (auto& f : bg_) ov->HideOverlay(f.h);
+            bg_shown_ = false;
+        }
         bg_alpha_ = 0.0f;
         return;
     }
@@ -385,7 +422,10 @@ void OvrApp::apply_backdrop(uint8_t gray, float alpha) {
         for (auto& f : bg_) ov->SetOverlayAlpha(f.h, alpha);
         bg_alpha_ = alpha;
     }
-    if (!bg_shown_) { for (auto& f : bg_) ov->ShowOverlay(f.h); bg_shown_ = true; }
+    if (!bg_shown_) {
+        for (auto& f : bg_) ov->ShowOverlay(f.h);
+        bg_shown_ = true;
+    }
 }
 
 bool OvrApp::frame(const std::function<Frame(double, const ViewGeometry&)>& update_cb) {
@@ -402,11 +442,11 @@ bool OvrApp::frame(const std::function<Frame(double, const ViewGeometry&)>& upda
             sync_failures_ = 0;
             synced = true;
         } else if (e == vr::VROverlayError_TimedOut) {
-            synced = true;   // already waited 100 ms
+            synced = true;  // already waited 100 ms
         } else {
             if (++sync_failures_ == 10)
-                std::cout << "[INFO] WaitFrameSync unavailable ("
-                          << vr::VROverlay()->GetOverlayErrorNameFromEnum(e) << "); using a timer\n";
+                std::cout << "[INFO] WaitFrameSync unavailable (" << vr::VROverlay()->GetOverlayErrorNameFromEnum(e)
+                          << "); using a timer\n";
             if (sync_failures_ >= 10) next_sync_retry_ = now_s() + 5.0;
         }
     }
@@ -415,7 +455,7 @@ bool OvrApp::frame(const std::function<Frame(double, const ViewGeometry&)>& upda
     const double now = now_s();
     double dt = first_frame_ ? 0.0 : (now - prev_secs_);
     first_frame_ = false;
-    prev_secs_   = now;
+    prev_secs_ = now;
     dt = std::clamp(dt, 0.0, 0.1);
 
     // Headset (re)connected, IPD changed, or still on the fallback: refresh.
@@ -423,8 +463,7 @@ bool OvrApp::frame(const std::function<Frame(double, const ViewGeometry&)>& upda
         geom_dirty_ = false;
         next_geom_try_ = now + 1.0;
         const bool was_synthetic = geom_.synthetic;
-        if (compute_geometry() && was_synthetic)
-            std::cout << "[INFO] Headset geometry resolved\n";
+        if (compute_geometry() && was_synthetic) std::cout << "[INFO] Headset geometry resolved\n";
     }
 
     const Frame f = update_cb(dt, geom_);
@@ -453,4 +492,4 @@ void OvrApp::shutdown() {
     sys_ = nullptr;
 }
 
-#endif // HAVE_OPENVR
+#endif  // HAVE_OPENVR

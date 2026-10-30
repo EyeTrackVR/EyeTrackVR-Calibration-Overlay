@@ -26,7 +26,9 @@
 
 class Presenter {
 public:
-    struct Rect { float x0, y0, x1, y1; };   // overlay-plane metres
+    struct Rect {
+        float x0, y0, x1, y1;
+    };  // overlay-plane metres
 
     explicit Presenter(TextRenderer* text);
 
@@ -44,51 +46,56 @@ public:
 private:
     enum Slot { CENTER = 0, LOWER = 1, UPPER = 2, SLOT_COUNT };
 
-    struct Circle { float x, y, r; };
+    struct Circle {
+        float x, y, r;
+    };
 
-    void  update_target(const Scene& s, float dt);
-    void  update_panel(const Scene& s, float dt, const ViewGeometry& g);
-    void  layout_slots(const ViewGeometry& g);
-    bool  slot_rect(int slot, Rect& r) const;
-    bool  collides(const Rect& r, const std::vector<Circle>& cs) const;
-    void  raster(const PanelContent& c, const ViewGeometry& g);
+    void update_target(const Scene& s, float dt);
+    void update_panel(const Scene& s, float dt, const ViewGeometry& g);
+    void layout_slots(const ViewGeometry& g);
+    bool slot_rect(int slot, Rect& r) const;
+    bool collides(const Rect& r, const std::vector<Circle>& cs) const;
+    void raster(const PanelContent& c, const ViewGeometry& g);
 
     TextRenderer* text_;
 
-    bool   outro_ = false;
-    float  backdrop_ = 0.0f;   // 0..1 progress
+    bool outro_ = false;
+    float backdrop_ = 0.0f;  // 0..1 progress
 
     // Dot.
-    float  dot_vis_ = 0.0f;            // 0..1 visibility progress
-    float  pop_ = 1.0f;                // 0..1 pop-in progress
-    float  dot_x_ = 0.0f, dot_y_ = 0.0f, dot_size_ = 0.075f;
-    float  prev_x_ = 0.0f, prev_y_ = 0.0f;
-    float  vel_x_ = 0.0f, vel_y_ = 0.0f;
-    bool   have_prev_ = false;
+    float dot_vis_ = 0.0f;  // 0..1 visibility progress
+    float pop_ = 1.0f;      // 0..1 pop-in progress
+    float dot_x_ = 0.0f, dot_y_ = 0.0f, dot_size_ = 0.075f;
+    float prev_x_ = 0.0f, prev_y_ = 0.0f;
+    float vel_x_ = 0.0f, vel_y_ = 0.0f;
+    bool have_prev_ = false;
 
     // Motion trail: recent dot positions (presenter clock), newest last.
-    struct TrailPt { double t; float x, y; };
+    struct TrailPt {
+        double t;
+        float x, y;
+    };
     std::deque<TrailPt> trail_;
     double clock_ = 0.0;
-    void  trail_quad(float dot_size, float dot_alpha, Quad& out) const;
+    void trail_quad(float dot_size, float dot_alpha, Quad& out) const;
 
     // Ring.
-    float  ring_in_ = 0.0f;
-    float  ring_x_ = 0.0f, ring_y_ = 0.0f, ring_size_ = 0.0f;
-    bool   ring_active_ = false;
-    float  ring_alpha_ = 0.0f;
+    float ring_in_ = 0.0f;
+    float ring_x_ = 0.0f, ring_y_ = 0.0f, ring_size_ = 0.0f;
+    bool ring_active_ = false;
+    float ring_alpha_ = 0.0f;
 
     // Panel.
-    Image        img_;
+    Image img_;
     PanelContent shown_;
-    bool         have_img_ = false;
-    float        body_w_m_ = 0.0f, body_h_m_ = 0.0f;   // card size (overlay-plane metres)
-    float        panel_t_ = 0.0f;                      // 0..1 fade progress
-    bool         panel_on_ = false;                    // fading in / shown (vs out / hidden)
-    int          slot_ = CENTER;
-    float        slot_y_[SLOT_COUNT] = {0.0f, -0.8f, 0.7f};
-    bool         slot_ok_[SLOT_COUNT] = {true, true, true};
-    float        panel_alpha_out_ = 0.0f;
-    float        panel_scale_out_ = 1.0f;
-    std::vector<Circle> hits_;          // what the panel must avoid this frame
+    bool have_img_ = false;
+    float body_w_m_ = 0.0f, body_h_m_ = 0.0f;  // card size (overlay-plane metres)
+    float panel_t_ = 0.0f;                     // 0..1 fade progress
+    bool panel_on_ = false;                    // fading in / shown (vs out / hidden)
+    int slot_ = CENTER;
+    float slot_y_[SLOT_COUNT] = {0.0f, -0.8f, 0.7f};
+    bool slot_ok_[SLOT_COUNT] = {true, true, true};
+    float panel_alpha_out_ = 0.0f;
+    float panel_scale_out_ = 1.0f;
+    std::vector<Circle> hits_;  // what the panel must avoid this frame
 };
