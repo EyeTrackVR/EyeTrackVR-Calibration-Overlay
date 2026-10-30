@@ -1,0 +1,6 @@
+BasedOnStyle: Google
+IndentWidth: 4
+AccessModifierOffset: -4
+ColumnLimit: 120
+# Windows headers must come before the headers that depend on them.
+SortIncludes: Never
