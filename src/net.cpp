@@ -6,28 +6,28 @@
 #include <thread>
 
 #ifdef _WIN32
-#  ifndef WIN32_LEAN_AND_MEAN
-#    define WIN32_LEAN_AND_MEAN
-#  endif
-#  ifndef NOMINMAX
-#    define NOMINMAX
-#  endif
-#  include <winsock2.h>
-#  include <ws2tcpip.h>
-   using socklen_t = int;
-   using nativesock = SOCKET;
-   static constexpr long long kInvalid = (long long)INVALID_SOCKET;
-#  define CLOSESOCK closesocket
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+using socklen_t = int;
+using nativesock = SOCKET;
+static constexpr long long kInvalid = (long long)INVALID_SOCKET;
+#define CLOSESOCK closesocket
 #else
-#  include <sys/socket.h>
-#  include <netinet/in.h>
-#  include <arpa/inet.h>
-#  include <fcntl.h>
-#  include <unistd.h>
-#  include <errno.h>
-   using nativesock = int;
-   static constexpr long long kInvalid = -1;
-#  define CLOSESOCK ::close
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
+using nativesock = int;
+static constexpr long long kInvalid = -1;
+#define CLOSESOCK ::close
 #endif
 
 // Recover the platform-native socket handle from the stored int64 without
@@ -53,7 +53,7 @@ bool ensure_started() {
 sockaddr_in loopback_addr(uint16_t port) {
     sockaddr_in a{};
     a.sin_family = AF_INET;
-    a.sin_port   = htons(port);
+    a.sin_port = htons(port);
     inet_pton(AF_INET, "127.0.0.1", &a.sin_addr);
     return a;
 }
@@ -89,7 +89,7 @@ void send_quit(uint16_t port) {
     CLOSESOCK(s);
 }
 
-} // namespace
+}  // namespace
 
 UdpNet::~UdpNet() { close(); }
 
@@ -210,6 +210,12 @@ int UdpNet::recv(void* buf, int buflen) {
 }
 
 void UdpNet::close() {
-    if (send_sock_ != kInvalid) { CLOSESOCK(SK(send_sock_)); send_sock_ = kInvalid; }
-    if (recv_sock_ != kInvalid) { CLOSESOCK(SK(recv_sock_)); recv_sock_ = kInvalid; }
+    if (send_sock_ != kInvalid) {
+        CLOSESOCK(SK(send_sock_));
+        send_sock_ = kInvalid;
+    }
+    if (recv_sock_ != kInvalid) {
+        CLOSESOCK(SK(recv_sock_));
+        recv_sock_ = kInvalid;
+    }
 }

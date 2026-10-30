@@ -25,6 +25,6 @@ const Image& ring();
 // stretched to the trail length and rotated along the motion; its head end sits
 // under the dot, so the trail is never wider than the dot's visible disc.
 const Image& trail();
-inline constexpr float kTrailWidth = 0.62f;   // trail thickness / visible dot diameter
+inline constexpr float kTrailWidth = 0.62f;  // trail thickness / visible dot diameter
 
-} // namespace sprites
+}  // namespace sprites

@@ -15,15 +15,15 @@
 // (loaded lazily) so translated strings do not render as garbage.
 
 struct PanelContent {
-    std::string text;            // '\n'-separated; first line is the title
-    Tone        tone = Tone::Normal;
-    int         pips_total = 0;  // > 0: pip row
-    int         pips_done  = 0;
-    float       bar = -1.0f;     // >= 0 (and no pips): progress bar fraction
+    std::string text;  // '\n'-separated; first line is the title
+    Tone tone = Tone::Normal;
+    int pips_total = 0;  // > 0: pip row
+    int pips_done = 0;
+    float bar = -1.0f;  // >= 0 (and no pips): progress bar fraction
 
     bool operator==(const PanelContent& o) const {
-        return text == o.text && tone == o.tone && pips_total == o.pips_total &&
-               pips_done == o.pips_done && bar == o.bar;
+        return text == o.text && tone == o.tone && pips_total == o.pips_total && pips_done == o.pips_done &&
+               bar == o.bar;
     }
     bool operator!=(const PanelContent& o) const { return !(*this == o); }
 };
@@ -34,10 +34,10 @@ public:
     // the angular resolution of current high-end headsets).
     static constexpr float kPixelsPerMetre = 640.0f;
     // Transparent margin around the card that holds its shadow.
-    static constexpr int   kShadowPad = 24;
+    static constexpr int kShadowPad = 24;
     // Hard limits so a swapchain/overlay sized once always fits.
-    static constexpr int   kMaxWidth  = 1088;
-    static constexpr int   kMaxHeight = 576;
+    static constexpr int kMaxWidth = 1088;
+    static constexpr int kMaxHeight = 576;
 
     TextRenderer();
     ~TextRenderer();

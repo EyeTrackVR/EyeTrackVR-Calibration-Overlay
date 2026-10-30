@@ -25,13 +25,13 @@
 #include <vector>
 
 #ifdef _WIN32
-#  ifndef WIN32_LEAN_AND_MEAN
-#    define WIN32_LEAN_AND_MEAN
-#  endif
-#  ifndef NOMINMAX
-#    define NOMINMAX
-#  endif
-#  include <windows.h>
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 #endif
 
 namespace fs = std::filesystem;
@@ -43,8 +43,7 @@ namespace {
 std::string reg_read(HKEY root, const char* subkey, const char* value) {
     char buf[1024];
     DWORD sz = sizeof(buf);
-    if (RegGetValueA(root, subkey, value, RRF_RT_REG_SZ, nullptr, buf, &sz) == ERROR_SUCCESS)
-        return std::string(buf);
+    if (RegGetValueA(root, subkey, value, RRF_RT_REG_SZ, nullptr, buf, &sz) == ERROR_SUCCESS) return std::string(buf);
     return {};
 }
 
@@ -95,6 +94,7 @@ public:
     TeeBuf(std::streambuf* console, std::ofstream* file) : con_(console), file_(file) {
         t0_ = std::chrono::steady_clock::now();
     }
+
 protected:
     int overflow(int c) override {
         if (c == EOF) return 0;
@@ -108,7 +108,10 @@ protected:
                 bol_ = false;
             }
             file_->put((char)c);
-            if (c == '\n') { bol_ = true; file_->flush(); }
+            if (c == '\n') {
+                bol_ = true;
+                file_->flush();
+            }
         }
         return c;
     }
@@ -117,10 +120,11 @@ protected:
         if (file_ && *file_) file_->flush();
         return 0;
     }
+
 private:
     std::streambuf* con_;
-    std::ofstream*  file_;
-    bool            bol_ = true;
+    std::ofstream* file_;
+    bool bol_ = true;
     std::chrono::steady_clock::time_point t0_;
 };
 
@@ -134,11 +138,12 @@ std::string find_file(const std::string& exe_dir, const std::string& rel) {
 bool parse_float(const std::string& arg, size_t prefix, float lo, float hi, bool hi_inclusive, float& out) {
     char* end = nullptr;
     const float v = std::strtof(arg.c_str() + prefix, &end);
-    const bool ok = end && *end == '\0' && end != arg.c_str() + prefix && v > lo &&
-                    (hi_inclusive ? v <= hi : v < hi);
-    if (ok) out = v;
-    else std::cout << "[WARN] Ignoring " << arg << " (expected " << lo << " < v "
-                   << (hi_inclusive ? "<= " : "< ") << hi << ")\n";
+    const bool ok = end && *end == '\0' && end != arg.c_str() + prefix && v > lo && (hi_inclusive ? v <= hi : v < hi);
+    if (ok)
+        out = v;
+    else
+        std::cout << "[WARN] Ignoring " << arg << " (expected " << lo << " < v " << (hi_inclusive ? "<= " : "< ") << hi
+                  << ")\n";
     return ok;
 }
 
@@ -146,23 +151,24 @@ bool parse_int(const std::string& arg, size_t prefix, long lo, long hi, long& ou
     char* end = nullptr;
     const long v = std::strtol(arg.c_str() + prefix, &end, 10);
     const bool ok = end && *end == '\0' && end != arg.c_str() + prefix && v >= lo && v <= hi;
-    if (ok) out = v;
-    else std::cout << "[WARN] Ignoring " << arg << " (expected " << lo << ".." << hi << ")\n";
+    if (ok)
+        out = v;
+    else
+        std::cout << "[WARN] Ignoring " << arg << " (expected " << lo << ".." << hi << ")\n";
     return ok;
 }
 
 void print_usage() {
-    std::cout <<
-        "EyeTrackVR-Overlay [9point|center|ellipse|datacollect|finetune|interactive]\n"
-        "    [--coverage=0.70] [--max-deg=30] [--max-deg-up=15] [--max-deg-down=40]\n"
-        "    [--center-deg=0] [--backend=auto|openvr|openxr|sim] [--runtime=keep|<path.json>]\n"
-        "  simulator: [--sim-hmd=beyond2|index|quest3|pimax|vive|canted|narrow|generic]\n"
-        "    [--sim-fast] [--sim-seconds=N] [--sim-dump=<dir>] [--sim-dump-every=N] [--sim-debug]\n"
-        "  misc: [--lang=en|de|es|ja|zh] [--list-langs] [--signal-port=2112] [--cmd-port=2113]\n"
-        "    [--no-parent-watch] [--version]\n";
+    std::cout << "EyeTrackVR-Overlay [9point|center|ellipse|datacollect|finetune|interactive]\n"
+                 "    [--coverage=0.70] [--max-deg=30] [--max-deg-up=15] [--max-deg-down=40]\n"
+                 "    [--center-deg=0] [--backend=auto|openvr|openxr|sim] [--runtime=keep|<path.json>]\n"
+                 "  simulator: [--sim-hmd=beyond2|index|quest3|pimax|vive|canted|narrow|generic]\n"
+                 "    [--sim-fast] [--sim-seconds=N] [--sim-dump=<dir>] [--sim-dump-every=N] [--sim-debug]\n"
+                 "  misc: [--lang=en|de|es|ja|zh] [--list-langs] [--signal-port=2112] [--cmd-port=2113]\n"
+                 "    [--no-parent-watch] [--version]\n";
 }
 
-} // namespace
+}  // namespace
 
 int main(int argc, char** argv) {
     platform::install_quit_handlers();
@@ -173,8 +179,14 @@ int main(int argc, char** argv) {
     // binary (the app's tests ask --list-langs) never truncates the last run's log.
     for (int i = 1; i < argc; ++i) {
         const std::string arg(argv[i]);
-        if (arg == "--help" || arg == "-h") { print_usage(); return 0; }
-        if (arg == "--version")             { std::cout << cfg::VERSION << "\n"; return 0; }
+        if (arg == "--help" || arg == "-h") {
+            print_usage();
+            return 0;
+        }
+        if (arg == "--version") {
+            std::cout << cfg::VERSION << "\n";
+            return 0;
+        }
         if (arg == "--list-langs") {
             for (const auto& l : i18n::languages()) std::cout << l << "\n";
             return 0;
@@ -195,41 +207,65 @@ int main(int argc, char** argv) {
     // Restore the original buffer before tee/log_file are destroyed at scope exit.
     struct CoutGuard {
         std::streambuf* orig;
-        ~CoutGuard() { std::cout.flush(); std::cout.rdbuf(orig); }
+        ~CoutGuard() {
+            std::cout.flush();
+            std::cout.rdbuf(orig);
+        }
     } cout_guard{cout_orig};
 
     std::string mode_name = "9point";
-    std::string runtime_arg;        // "" = auto, "keep" = active runtime, else a json path
-    std::string backend_arg;        // "" = auto, "openvr" / "openxr" / "sim" to force
-    FovConfig   fov;
-    SimOptions  sim;
-    long        signal_port = cfg::PORT_SIGNAL, cmd_port = cfg::PORT_CMD;
-    bool        parent_watch = true;
-    std::string lang_arg = "en";    // the app passes its UI language
+    std::string runtime_arg;  // "" = auto, "keep" = active runtime, else a json path
+    std::string backend_arg;  // "" = auto, "openvr" / "openxr" / "sim" to force
+    FovConfig fov;
+    SimOptions sim;
+    long signal_port = cfg::PORT_SIGNAL, cmd_port = cfg::PORT_CMD;
+    bool parent_watch = true;
+    std::string lang_arg = "en";  // the app passes its UI language
 
     for (int i = 1; i < argc; ++i) {
         const std::string arg(argv[i]);
         long n = 0;
-        if (is_mode_name(arg))                         mode_name = arg;
-        else if (arg.rfind("--lang=", 0) == 0)         lang_arg = arg.substr(7);
-        else if (arg.rfind("--runtime=", 0) == 0)      runtime_arg = arg.substr(10);
-        else if (arg.rfind("--backend=", 0) == 0)      backend_arg = arg.substr(10);
-        else if (arg.rfind("--coverage=", 0) == 0)     parse_float(arg, 11, 0.0f, 1.0f, true, fov.coverage);
-        else if (arg.rfind("--max-deg=", 0) == 0)      parse_float(arg, 10, 0.0f, 90.0f, false, fov.max_deg);
-        else if (arg.rfind("--max-deg-up=", 0) == 0)   parse_float(arg, 13, 0.0f, 90.0f, false, fov.max_deg_up);
-        else if (arg.rfind("--max-deg-down=", 0) == 0) parse_float(arg, 15, 0.0f, 90.0f, false, fov.max_deg_down);
-        else if (arg.rfind("--center-deg=", 0) == 0)   parse_float(arg, 13, -45.0f, 45.0f, false, fov.center_deg);
-        else if (arg.rfind("--sim-hmd=", 0) == 0)      sim.hmd = arg.substr(10);
-        else if (arg.rfind("--sim-dump=", 0) == 0)     sim.dump_dir = arg.substr(11);
-        else if (arg.rfind("--sim-dump-every=", 0) == 0) { if (parse_int(arg, 17, 1, 100000, n)) sim.dump_every = (int)n; }
-        else if (arg.rfind("--sim-seconds=", 0) == 0)  { float s = 0; if (parse_float(arg, 14, 0.0f, 86400.0f, true, s)) sim.max_seconds = s; }
-        else if (arg == "--sim-fast")                  sim.fast = true;
-        else if (arg == "--sim-debug")                 sim.debug = true;
-        else if (arg.rfind("--sim-eye-px=", 0) == 0)   { if (parse_int(arg, 13, 64, 4096, n)) sim.eye_px = (int)n; }
-        else if (arg.rfind("--signal-port=", 0) == 0)  parse_int(arg, 14, 1, 65535, signal_port);
-        else if (arg.rfind("--cmd-port=", 0) == 0)     parse_int(arg, 11, 1, 65535, cmd_port);
-        else if (arg == "--no-parent-watch")           parent_watch = false;
-        else std::cout << "[WARN] Unknown argument: " << arg << "\n";
+        if (is_mode_name(arg))
+            mode_name = arg;
+        else if (arg.rfind("--lang=", 0) == 0)
+            lang_arg = arg.substr(7);
+        else if (arg.rfind("--runtime=", 0) == 0)
+            runtime_arg = arg.substr(10);
+        else if (arg.rfind("--backend=", 0) == 0)
+            backend_arg = arg.substr(10);
+        else if (arg.rfind("--coverage=", 0) == 0)
+            parse_float(arg, 11, 0.0f, 1.0f, true, fov.coverage);
+        else if (arg.rfind("--max-deg=", 0) == 0)
+            parse_float(arg, 10, 0.0f, 90.0f, false, fov.max_deg);
+        else if (arg.rfind("--max-deg-up=", 0) == 0)
+            parse_float(arg, 13, 0.0f, 90.0f, false, fov.max_deg_up);
+        else if (arg.rfind("--max-deg-down=", 0) == 0)
+            parse_float(arg, 15, 0.0f, 90.0f, false, fov.max_deg_down);
+        else if (arg.rfind("--center-deg=", 0) == 0)
+            parse_float(arg, 13, -45.0f, 45.0f, false, fov.center_deg);
+        else if (arg.rfind("--sim-hmd=", 0) == 0)
+            sim.hmd = arg.substr(10);
+        else if (arg.rfind("--sim-dump=", 0) == 0)
+            sim.dump_dir = arg.substr(11);
+        else if (arg.rfind("--sim-dump-every=", 0) == 0) {
+            if (parse_int(arg, 17, 1, 100000, n)) sim.dump_every = (int)n;
+        } else if (arg.rfind("--sim-seconds=", 0) == 0) {
+            float s = 0;
+            if (parse_float(arg, 14, 0.0f, 86400.0f, true, s)) sim.max_seconds = s;
+        } else if (arg == "--sim-fast")
+            sim.fast = true;
+        else if (arg == "--sim-debug")
+            sim.debug = true;
+        else if (arg.rfind("--sim-eye-px=", 0) == 0) {
+            if (parse_int(arg, 13, 64, 4096, n)) sim.eye_px = (int)n;
+        } else if (arg.rfind("--signal-port=", 0) == 0)
+            parse_int(arg, 14, 1, 65535, signal_port);
+        else if (arg.rfind("--cmd-port=", 0) == 0)
+            parse_int(arg, 11, 1, 65535, cmd_port);
+        else if (arg == "--no-parent-watch")
+            parent_watch = false;
+        else
+            std::cout << "[WARN] Unknown argument: " << arg << "\n";
     }
     if (!sim.dump_dir.empty() && sim.dump_every == 0) sim.dump_every = 9;
 
@@ -243,8 +279,8 @@ int main(int argc, char** argv) {
         std::cout << "\n";
     }
 
-    if (!backend_arg.empty() && backend_arg != "auto" && backend_arg != "openvr" &&
-        backend_arg != "openxr" && backend_arg != "sim") {
+    if (!backend_arg.empty() && backend_arg != "auto" && backend_arg != "openvr" && backend_arg != "openxr" &&
+        backend_arg != "sim") {
         std::cout << "[WARN] Unknown --backend=" << backend_arg << " (using auto)\n";
         backend_arg.clear();
     }
@@ -366,17 +402,21 @@ int main(int argc, char** argv) {
     bool backend_ended = false;
 
     while (true) {
-        if (!app->poll_events()) { backend_ended = true; break; }
+        if (!app->poll_events()) {
+            backend_ended = true;
+            break;
+        }
         if (platform::quit_requested()) session.request_quit();
         if (watch_parent && !parent_gone && !watch.parent_alive()) {
             parent_gone = true;
             std::cout << "[WARN] The launching app exited; closing the overlay\n";
             session.request_quit();
         }
-        const bool cont = app->frame([&](double dt, const ViewGeometry& g) {
-            return session.step(dt, g);
-        });
-        if (!cont) { backend_ended = true; break; }
+        const bool cont = app->frame([&](double dt, const ViewGeometry& g) { return session.step(dt, g); });
+        if (!cont) {
+            backend_ended = true;
+            break;
+        }
         if (session.done()) break;
     }
 

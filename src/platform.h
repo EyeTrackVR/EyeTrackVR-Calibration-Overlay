@@ -30,11 +30,11 @@ public:
     bool parent_alive();
 
 private:
-    bool   active_ = false;
-    void*  handle_ = nullptr;   // Windows process handle
-    long   ppid_   = 0;         // POSIX parent pid
+    bool active_ = false;
+    void* handle_ = nullptr;  // Windows process handle
+    long ppid_ = 0;           // POSIX parent pid
     double next_check_ = 0.0;
-    bool   alive_ = true;
+    bool alive_ = true;
 };
 
 // Current process id (used to make OpenVR overlay keys unique per instance).
@@ -45,4 +45,4 @@ long process_id();
 // for lang "ja" the Japanese fonts come before the Chinese ones.
 std::vector<std::string> fallback_fonts(const std::string& lang = "");
 
-} // namespace platform
+}  // namespace platform

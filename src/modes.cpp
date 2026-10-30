@@ -39,13 +39,13 @@ namespace {
 // Per point: appear (dot glides in; ring appears at the target) → shrink (ring
 // converges; signal at its end) → hold (capture window). Timings are protocol:
 // the app starts sampling on the signal and relies on the 0.5 s hold after it.
-constexpr float  DC_DOT_LARGE = 0.63f;   // attention ring start diameter (m)
-constexpr float  DC_DOT_SMALL = 0.075f;  // fixation dot diameter (m)
-constexpr double DC_APPEAR_S  = 0.150;
-constexpr double DC_SHRINK_S  = 0.500;
-constexpr double DC_HOLD_S    = 0.500;
+constexpr float DC_DOT_LARGE = 0.63f;   // attention ring start diameter (m)
+constexpr float DC_DOT_SMALL = 0.075f;  // fixation dot diameter (m)
+constexpr double DC_APPEAR_S = 0.150;
+constexpr double DC_SHRINK_S = 0.500;
+constexpr double DC_HOLD_S = 0.500;
 constexpr double DC_SQUINT_WAIT_S = 5.500;
-constexpr double INTRO_S      = 1.500;   // instruction card before the first dot
+constexpr double INTRO_S = 1.500;  // instruction card before the first dot
 
 // Capture grid in normalised gaze coordinates (±1 = edge of the gaze range).
 // Pushed out (v6 data collection, 2026-07-04): cardinals 0.786→0.85, corners
@@ -54,17 +54,15 @@ constexpr double INTRO_S      = 1.500;   // instruction card before the first do
 // version-gated to match (dataset.py _RING_COORDS_V6). ±1 = edge of the gaze
 // range, whose extent is set by the --coverage/--max-deg flags at launch.
 const float DC_POS[9][2] = {
-    {-0.60f,  0.60f}, { 0.0f,  0.85f}, { 0.60f,  0.60f},
-    { 0.85f,  0.0f }, { 0.60f, -0.60f}, { 0.0f, -0.85f},
-    {-0.60f, -0.60f}, {-0.85f, 0.0f }, { 0.0f,   0.0f  },
+    {-0.60f, 0.60f}, {0.0f, 0.85f},    {0.60f, 0.60f}, {0.85f, 0.0f}, {0.60f, -0.60f},
+    {0.0f, -0.85f},  {-0.60f, -0.60f}, {-0.85f, 0.0f}, {0.0f, 0.0f},
 };
 
 // Classic 3×3 grid (top row → bottom, right → left) at 57.1% of the range.
 constexpr float GRID_FRAC = 0.571f;
 const float GRID[9][2] = {
-    { 1.0f,  1.0f}, { 0.0f,  1.0f}, {-1.0f,  1.0f},
-    { 1.0f,  0.0f}, { 0.0f,  0.0f}, {-1.0f,  0.0f},
-    { 1.0f, -1.0f}, { 0.0f, -1.0f}, {-1.0f, -1.0f},
+    {1.0f, 1.0f},  {0.0f, 1.0f},  {-1.0f, 1.0f}, {1.0f, 0.0f},   {0.0f, 0.0f},
+    {-1.0f, 0.0f}, {1.0f, -1.0f}, {0.0f, -1.0f}, {-1.0f, -1.0f},
 };
 const float CENTER_PT[1][2] = {{0.0f, 0.0f}};
 
@@ -76,17 +74,17 @@ const float CENTER_PT[1][2] = {{0.0f, 0.0f}};
 // Order must match NEXT_SMARTCAL_DOTS downstream.
 // Normalised gaze coordinates (±1 = edge of the gaze range).
 const float FINETUNE_POS[11][2] = {
-    { 0.000000f,  0.800000f},   // 0 outer top
-    { 0.760845f,  0.247214f},   // 1 outer upper-right
-    { 0.470228f, -0.647214f},   // 2 outer lower-right
-    {-0.470228f, -0.647214f},   // 3 outer lower-left
-    {-0.760845f,  0.247214f},   // 4 outer upper-left
-    { 0.246870f,  0.339787f},   // 5 inner upper-right
-    { 0.399444f, -0.129787f},   // 6 inner lower-right
-    { 0.000000f, -0.420000f},   // 7 inner bottom
-    {-0.399444f, -0.129787f},   // 8 inner lower-left
-    {-0.246870f,  0.339787f},   // 9 inner upper-left
-    { 0.000000f,  0.000000f},   // 10 centre (last)
+    {0.000000f, 0.800000f},    // 0 outer top
+    {0.760845f, 0.247214f},    // 1 outer upper-right
+    {0.470228f, -0.647214f},   // 2 outer lower-right
+    {-0.470228f, -0.647214f},  // 3 outer lower-left
+    {-0.760845f, 0.247214f},   // 4 outer upper-left
+    {0.246870f, 0.339787f},    // 5 inner upper-right
+    {0.399444f, -0.129787f},   // 6 inner lower-right
+    {0.000000f, -0.420000f},   // 7 inner bottom
+    {-0.399444f, -0.129787f},  // 8 inner lower-left
+    {-0.246870f, 0.339787f},   // 9 inner upper-left
+    {0.000000f, 0.000000f},    // 10 centre (last)
 };
 
 using i18n::Str;
@@ -105,14 +103,13 @@ float converge(float t) {
 }
 
 uint32_t be32(const unsigned char* p) {
-    return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
-           ((uint32_t)p[2] << 8)  |  (uint32_t)p[3];
+    return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | (uint32_t)p[3];
 }
 
 struct Cmd {
-    int32_t     code = 0;
-    bool        has_xy = false;
-    float       x = 0, y = 0;
+    int32_t code = 0;
+    bool has_xy = false;
+    float x = 0, y = 0;
     std::string str;
 };
 
@@ -144,26 +141,31 @@ bool poll_cmd(UdpNet& net, Cmd& out) {
 // Reproduces run_dc_phase(): emits base+index at the shrink→hold boundary.
 struct PointSequence {
     const float (*pts)[2] = nullptr;
-    int    count = 0;
-    int    base  = 0;
-    float  scale = 1.0f;
-    float  large = DC_DOT_LARGE, small = DC_DOT_SMALL;
+    int count = 0;
+    int base = 0;
+    float scale = 1.0f;
+    float large = DC_DOT_LARGE, small = DC_DOT_SMALL;
     double appear_s = DC_APPEAR_S, shrink_s = DC_SHRINK_S, hold_s = DC_HOLD_S;
-    bool   signal_points = true;
+    bool signal_points = true;
 
-    int    idx = 0, sub = 0;   // sub: 0 appear, 1 shrink, 2 hold
+    int idx = 0, sub = 0;  // sub: 0 appear, 1 shrink, 2 hold
     double t = 0;
-    bool   done = false;
+    bool done = false;
 
     // Where the dot is currently shown (metres): the next point glides from
     // here during its appear phase instead of popping in.
-    bool   has_from = false;
-    float  from_x = 0.0f, from_y = 0.0f;
+    bool has_from = false;
+    float from_x = 0.0f, from_y = 0.0f;
 
     // glide_from_current: continue from the dot already on screen.
     void start(const float (*p)[2], int n, int base_idx, bool glide_from_current = false) {
-        pts = p; count = n; base = base_idx;
-        idx = 0; sub = 0; t = 0; done = false;
+        pts = p;
+        count = n;
+        base = base_idx;
+        idx = 0;
+        sub = 0;
+        t = 0;
+        done = false;
         if (!glide_from_current) has_from = false;
     }
 
@@ -174,12 +176,13 @@ struct PointSequence {
         const float ty = g.y(pts[idx][1] * scale);
         float x = tx, y = ty;
         s.dot_visible = true;
-        s.dot_size    = small;
-        s.ring_x = tx; s.ring_y = ty;
+        s.dot_size = small;
+        s.ring_x = tx;
+        s.ring_y = ty;
         s.progress_total = count;
-        s.progress_done  = idx;
+        s.progress_done = idx;
 
-        if (sub == 0) {                          // appear
+        if (sub == 0) {  // appear
             s.ring_size = large;
             if (has_from && appear_s > 0.0) {
                 const float f = ease_in_out((float)(t / appear_s));
@@ -188,20 +191,27 @@ struct PointSequence {
             } else {
                 s.dot_cut = true;
             }
-            if (t >= appear_s) { t = 0; sub = 1; }
-        } else if (sub == 1) {                   // shrink
+            if (t >= appear_s) {
+                t = 0;
+                sub = 1;
+            }
+        } else if (sub == 1) {  // shrink
             const float f = (float)std::min(1.0, t / shrink_s);
             s.ring_size = large + (small - large) * converge(f);
             if (t >= shrink_s) {
-                t = 0; sub = 2;
+                t = 0;
+                sub = 2;
                 if (signal_points) net.send_int32(base + idx);
             }
-        } else {                                 // hold
+        } else {  // hold
             s.ring_size = 0.0f;
             s.capture_hold = true;
             if (t >= hold_s) {
-                t = 0; sub = 0;
-                from_x = tx; from_y = ty; has_from = true;
+                t = 0;
+                sub = 0;
+                from_x = tx;
+                from_y = ty;
+                has_from = true;
                 if (++idx >= count) done = true;
             }
         }
@@ -220,22 +230,29 @@ public:
         if (!started_) {
             started_ = true;
             seq_.appear_s = 0.0;
-            seq_.small    = 0.045f;
+            seq_.small = 0.045f;
             if (center_) {
-                seq_.large = 3.75f; seq_.shrink_s = 0.25; seq_.hold_s = 0.0;
+                seq_.large = 3.75f;
+                seq_.shrink_s = 0.25;
+                seq_.hold_s = 0.0;
                 seq_.signal_points = false;
                 seq_.start(CENTER_PT, 1, 0);
             } else {
-                seq_.large = 1.5f; seq_.shrink_s = 0.10; seq_.hold_s = 0.05;
+                seq_.large = 1.5f;
+                seq_.shrink_s = 0.10;
+                seq_.hold_s = 0.05;
                 seq_.scale = GRID_FRAC;
                 seq_.start(GRID, 9, 0);
             }
         }
         if (!seq_.done) {
             seq_.update(dt, net, g, s);
-            if (seq_.done) { net.send_int32(9); finished_ = true; }
+            if (seq_.done) {
+                net.send_int32(9);
+                finished_ = true;
+            }
         }
-        s.progress_total = 0;   // no instruction card in the quick modes
+        s.progress_total = 0;  // no instruction card in the quick modes
         return s;
     }
     bool finished() const override { return finished_; }
@@ -248,6 +265,7 @@ private:
 // ── ellipse ─────────────────────────────────────────────────────────────────
 class EllipseMode : public IMode {
     enum Phase { INTRO, ORBIT, SPIRAL, CENTER, COMPLETE, DONE };
+
 public:
     Scene update(double dt, UdpNet& net, const GazeRange& g) override {
         Scene s;
@@ -256,67 +274,78 @@ public:
         total_ += dt;
         s.progress_frac = (float)std::min(1.0, total_ / kTotalS);
         switch (phase_) {
-        case INTRO:
-            s.text = tr2(Str::FollowTitle, Str::FollowSub);
-            s.dot_visible = true; s.dot_size = DOT_LARGE;
-            s.dot_x = g.x(-1.0f); s.dot_y = g.y(0.0f);
-            if (t_ >= 1.2) { net.send_int32(0); next(ORBIT); }
-            break;
-        case ORBIT: {
-            s.text = tr2(Str::FollowTitle, Str::FollowSub);
-            double frac = std::min(1.0, t_ / ORBIT_S);
-            // Parameter angle moves unevenly around a stretched/asymmetric
-            // ellipse. Convert elapsed fraction to arc-length fraction so the
-            // dot has constant visible speed on every HMD.
-            double a = arc_angle(g, std::fmod(ORBIT_ROTS * frac, 1.0));
-            float nx, ny;
-            path_coords(g, a, nx, ny);
-            place(s, g, nx, ny, DOT_LARGE);
-            if (t_ >= ORBIT_S) next(SPIRAL);
-            break;
-        }
-        case SPIRAL: {
-            double frac = std::min(1.0, t_ / SPIRAL_S);
-            double shrink = 1.0 - frac;
-            // Each spiral revolution uses the same constant-arc-speed mapping.
-            // Its overall radius still shrinks linearly as intended.
-            double a = arc_angle(g, std::fmod(SPIRAL_ROTS * frac, 1.0));
-            float nx, ny;
-            path_coords(g, a, nx, ny);
-            float sz = DOT_LARGE + (DOT_SMALL - DOT_LARGE) * (float)frac;
-            place(s, g, (float)(shrink * nx), (float)(shrink * ny), sz);
-            s.text = (SPIRAL_S - t_ <= 5.0) ? tr2(Str::AlmostDone, Str::KeepFollowing)
-                                            : tr2(Str::FollowTitle, Str::FollowSub);
-            if (t_ >= SPIRAL_S) next(CENTER);
-            break;
-        }
-        case CENTER:
-            s.text = tr2(Str::HoldTitle, Str::HoldSub);
-            place(s, g, 0.0f, 0.0f, DOT_SMALL);
-            s.capture_hold = true;
-            if (t_ >= 1.5) { net.send_int32(9); next(COMPLETE); }
-            break;
-        case COMPLETE:
-            s.text = tr(Str::CalibrationComplete);
-            s.tone = Tone::Success;
-            s.progress_frac = 1.0f;
-            if (t_ >= 1.0) phase_ = DONE;
-            break;
-        case DONE:
-            finished_ = true;
-            break;
+            case INTRO:
+                s.text = tr2(Str::FollowTitle, Str::FollowSub);
+                s.dot_visible = true;
+                s.dot_size = DOT_LARGE;
+                s.dot_x = g.x(-1.0f);
+                s.dot_y = g.y(0.0f);
+                if (t_ >= 1.2) {
+                    net.send_int32(0);
+                    next(ORBIT);
+                }
+                break;
+            case ORBIT: {
+                s.text = tr2(Str::FollowTitle, Str::FollowSub);
+                double frac = std::min(1.0, t_ / ORBIT_S);
+                // Parameter angle moves unevenly around a stretched/asymmetric
+                // ellipse. Convert elapsed fraction to arc-length fraction so the
+                // dot has constant visible speed on every HMD.
+                double a = arc_angle(g, std::fmod(ORBIT_ROTS * frac, 1.0));
+                float nx, ny;
+                path_coords(g, a, nx, ny);
+                place(s, g, nx, ny, DOT_LARGE);
+                if (t_ >= ORBIT_S) next(SPIRAL);
+                break;
+            }
+            case SPIRAL: {
+                double frac = std::min(1.0, t_ / SPIRAL_S);
+                double shrink = 1.0 - frac;
+                // Each spiral revolution uses the same constant-arc-speed mapping.
+                // Its overall radius still shrinks linearly as intended.
+                double a = arc_angle(g, std::fmod(SPIRAL_ROTS * frac, 1.0));
+                float nx, ny;
+                path_coords(g, a, nx, ny);
+                float sz = DOT_LARGE + (DOT_SMALL - DOT_LARGE) * (float)frac;
+                place(s, g, (float)(shrink * nx), (float)(shrink * ny), sz);
+                s.text = (SPIRAL_S - t_ <= 5.0) ? tr2(Str::AlmostDone, Str::KeepFollowing)
+                                                : tr2(Str::FollowTitle, Str::FollowSub);
+                if (t_ >= SPIRAL_S) next(CENTER);
+                break;
+            }
+            case CENTER:
+                s.text = tr2(Str::HoldTitle, Str::HoldSub);
+                place(s, g, 0.0f, 0.0f, DOT_SMALL);
+                s.capture_hold = true;
+                if (t_ >= 1.5) {
+                    net.send_int32(9);
+                    next(COMPLETE);
+                }
+                break;
+            case COMPLETE:
+                s.text = tr(Str::CalibrationComplete);
+                s.tone = Tone::Success;
+                s.progress_frac = 1.0f;
+                if (t_ >= 1.0) phase_ = DONE;
+                break;
+            case DONE:
+                finished_ = true;
+                break;
         }
         return s;
     }
     bool finished() const override { return finished_; }
 
 private:
-    static constexpr float  DOT_LARGE = 0.18f, DOT_SMALL = 0.06f;
+    static constexpr float DOT_LARGE = 0.18f, DOT_SMALL = 0.06f;
     static constexpr double ORBIT_ROTS = 1.0, ORBIT_S = 9.0;
     static constexpr double SPIRAL_ROTS = 3.0, SPIRAL_S = 30.0;
     static constexpr double kTotalS = 1.2 + ORBIT_S + SPIRAL_S + 1.5;
 
-    void next(Phase p) { phase_ = p; t_ = 0; }
+    void next(Phase p) {
+        phase_ = p;
+        t_ = 0;
+    }
 
     // The upper gaze extent can be much shorter than the horizontal extent
     // (e.g. 15 vs 28 degrees on the Beyond). A plain parametric ellipse then
@@ -356,7 +385,8 @@ private:
             const double x = g.x(nx);
             const double y = g.y(ny);
             cumulative[i] = cumulative[i - 1] + std::hypot(x - prev_x, y - prev_y);
-            prev_x = x; prev_y = y;
+            prev_x = x;
+            prev_y = y;
         }
         const double target = frac * cumulative[N];
         int hi = 1;
@@ -367,63 +397,82 @@ private:
     }
 
     static void place(Scene& s, const GazeRange& g, float nx, float ny, float sz) {
-        s.dot_visible = true; s.dot_size = sz;
-        s.dot_x = g.x(nx); s.dot_y = g.y(ny);
+        s.dot_visible = true;
+        s.dot_size = sz;
+        s.dot_x = g.x(nx);
+        s.dot_y = g.y(ny);
     }
 
-    Phase  phase_ = INTRO;
+    Phase phase_ = INTRO;
     double t_ = 0, total_ = 0;
-    bool   finished_ = false;
+    bool finished_ = false;
 };
 
 // ── datacollect ───────────────────────────────────────────────────────────────
 class DataCollectMode : public IMode {
     enum Phase { INTRO, PHASE1, ANNOUNCE, PHASE2, COMPLETE, DONE };
+
 public:
     Scene update(double dt, UdpNet& net, const GazeRange& g) override {
         Scene s;
         s.text_visible = true;
         t_ += dt;
         switch (phase_) {
-        case INTRO:
-            s.text = tr2(Str::FollowTitle, Str::FollowSub);
-            s.progress_total = 9;
-            if (t_ >= INTRO_S) { seq_.start(DC_POS, 9, 0); next(PHASE1); }
-            break;
-        case PHASE1:
-            s.text = tr2(Str::FollowTitle, Str::FollowSub);
-            seq_.update(dt, net, g, s);
-            if (seq_.done) { net.send_int32(9); next(ANNOUNCE); }
-            break;
-        case ANNOUNCE:
-            s.text = tr2(Str::SquintTitle, Str::SquintSub);
-            s.progress_total = 9;
-            if (t_ >= DC_SQUINT_WAIT_S) { seq_.start(DC_POS, 9, 10); next(PHASE2); }
-            break;
-        case PHASE2:
-            s.text = tr2(Str::SquintTitle, Str::SquintSub);
-            seq_.update(dt, net, g, s);
-            if (seq_.done) { net.send_int32(19); next(COMPLETE); }
-            break;
-        case COMPLETE:
-            s.text = tr(Str::CollectionComplete);
-            s.tone = Tone::Success;
-            s.progress_total = 9; s.progress_done = 9;
-            if (t_ >= 1.2) phase_ = DONE;
-            break;
-        case DONE:
-            finished_ = true;
-            break;
+            case INTRO:
+                s.text = tr2(Str::FollowTitle, Str::FollowSub);
+                s.progress_total = 9;
+                if (t_ >= INTRO_S) {
+                    seq_.start(DC_POS, 9, 0);
+                    next(PHASE1);
+                }
+                break;
+            case PHASE1:
+                s.text = tr2(Str::FollowTitle, Str::FollowSub);
+                seq_.update(dt, net, g, s);
+                if (seq_.done) {
+                    net.send_int32(9);
+                    next(ANNOUNCE);
+                }
+                break;
+            case ANNOUNCE:
+                s.text = tr2(Str::SquintTitle, Str::SquintSub);
+                s.progress_total = 9;
+                if (t_ >= DC_SQUINT_WAIT_S) {
+                    seq_.start(DC_POS, 9, 10);
+                    next(PHASE2);
+                }
+                break;
+            case PHASE2:
+                s.text = tr2(Str::SquintTitle, Str::SquintSub);
+                seq_.update(dt, net, g, s);
+                if (seq_.done) {
+                    net.send_int32(19);
+                    next(COMPLETE);
+                }
+                break;
+            case COMPLETE:
+                s.text = tr(Str::CollectionComplete);
+                s.tone = Tone::Success;
+                s.progress_total = 9;
+                s.progress_done = 9;
+                if (t_ >= 1.2) phase_ = DONE;
+                break;
+            case DONE:
+                finished_ = true;
+                break;
         }
         return s;
     }
     bool finished() const override { return finished_; }
 
 private:
-    void next(Phase p) { phase_ = p; t_ = 0; }
-    Phase  phase_ = INTRO;
+    void next(Phase p) {
+        phase_ = p;
+        t_ = 0;
+    }
+    Phase phase_ = INTRO;
     double t_ = 0;
-    bool   finished_ = false;
+    bool finished_ = false;
     PointSequence seq_;
 };
 
@@ -433,6 +482,7 @@ private:
 // with the classic 9=done value; the app's finetune handler matches on 100.
 class FineTuneMode : public IMode {
     enum Phase { INTRO, RUN, COMPLETE, DONE };
+
 public:
     Scene update(double dt, UdpNet& net, const GazeRange& g) override {
         Scene s;
@@ -440,32 +490,41 @@ public:
         s.text = tr2(Str::FollowTitle, Str::EachDotCenter);
         t_ += dt;
         switch (phase_) {
-        case INTRO:
-            s.progress_total = 11;
-            if (t_ >= INTRO_S) { seq_.start(FINETUNE_POS, 11, 0); phase_ = RUN; t_ = 0; }
-            break;
-        case RUN:
-            seq_.update(dt, net, g, s);   // signals point index 0..10 as each is captured
-            if (seq_.done) { net.send_int32(100); phase_ = COMPLETE; t_ = 0; }
-            break;
-        case COMPLETE:
-            s.text = tr(Str::FinetuneComplete);
-            s.tone = Tone::Success;
-            s.progress_total = 11; s.progress_done = 11;
-            if (t_ >= 1.2) phase_ = DONE;
-            break;
-        case DONE:
-            finished_ = true;
-            break;
+            case INTRO:
+                s.progress_total = 11;
+                if (t_ >= INTRO_S) {
+                    seq_.start(FINETUNE_POS, 11, 0);
+                    phase_ = RUN;
+                    t_ = 0;
+                }
+                break;
+            case RUN:
+                seq_.update(dt, net, g, s);  // signals point index 0..10 as each is captured
+                if (seq_.done) {
+                    net.send_int32(100);
+                    phase_ = COMPLETE;
+                    t_ = 0;
+                }
+                break;
+            case COMPLETE:
+                s.text = tr(Str::FinetuneComplete);
+                s.tone = Tone::Success;
+                s.progress_total = 11;
+                s.progress_done = 11;
+                if (t_ >= 1.2) phase_ = DONE;
+                break;
+            case DONE:
+                finished_ = true;
+                break;
         }
         return s;
     }
     bool finished() const override { return finished_; }
 
 private:
-    Phase  phase_ = INTRO;
+    Phase phase_ = INTRO;
     double t_ = 0;
-    bool   finished_ = false;
+    bool finished_ = false;
     PointSequence seq_;
 };
 
@@ -480,9 +539,10 @@ private:
 // apply in any state.
 class InteractiveMode : public IMode {
     enum State { IDLE, PASS_TEXT, PASS_DC, RANDOM_WAIT, RANDOM_ANIM, FINISHED };
+
 public:
     bool needs_recv() const override { return true; }
-    void on_start(UdpNet& net) override { net.send_int32(255); }   // overlay ready
+    void on_start(UdpNet& net) override { net.send_int32(255); }  // overlay ready
 
     Scene update(double dt, UdpNet& net, const GazeRange& g) override {
         // Pull everything that arrived since the last frame.
@@ -494,57 +554,70 @@ public:
         s.backdrop_gray = backdrop_gray_;
 
         switch (state_) {
-        case IDLE:
-            if (pin_dot_) {
-                // Pinned dot (cmd 113): converge once, then hold indefinitely
-                // until re-pinned or hidden (cmd 114). Used by the blink-at-dot
-                // data-collection pass, where the user must keep a stable
-                // fixation target across several seconds of blinking.
-                pin_t_ += dt;
-                show_converging(s, g.x(pin_x_), g.y(pin_y_), pin_t_);
-            } else if (center_dot_) {
-                center_t_ += dt;
-                show_converging(s, g.x(0.0f), g.y(0.0f), center_t_);
-            }
-            break;
+            case IDLE:
+                if (pin_dot_) {
+                    // Pinned dot (cmd 113): converge once, then hold indefinitely
+                    // until re-pinned or hidden (cmd 114). Used by the blink-at-dot
+                    // data-collection pass, where the user must keep a stable
+                    // fixation target across several seconds of blinking.
+                    pin_t_ += dt;
+                    show_converging(s, g.x(pin_x_), g.y(pin_y_), pin_t_);
+                } else if (center_dot_) {
+                    center_t_ += dt;
+                    show_converging(s, g.x(0.0f), g.y(0.0f), center_t_);
+                }
+                break;
 
-        case PASS_TEXT:
-            t_ += dt;
-            if (t_ >= 0.4) {
-                if (include_dc_) { seq_.start(DC_POS, 9, 0); state_ = PASS_DC; }
-                else             { net.send_int32(10); state_ = RANDOM_WAIT; }
-            }
-            break;
+            case PASS_TEXT:
+                t_ += dt;
+                if (t_ >= 0.4) {
+                    if (include_dc_) {
+                        seq_.start(DC_POS, 9, 0);
+                        state_ = PASS_DC;
+                    } else {
+                        net.send_int32(10);
+                        state_ = RANDOM_WAIT;
+                    }
+                }
+                break;
 
-        case PASS_DC:
-            seq_.update(dt, net, g, s);
-            if (seq_.done) { net.send_int32(10); state_ = RANDOM_WAIT; }
-            break;
+            case PASS_DC:
+                seq_.update(dt, net, g, s);
+                if (seq_.done) {
+                    net.send_int32(10);
+                    state_ = RANDOM_WAIT;
+                }
+                break;
 
-        case RANDOM_WAIT:
-            // Keep the last captured dot up while the app saves its frames and
-            // picks the next point: the user keeps fixating instead of the
-            // target blinking out.
-            if (dot_on_) {
-                s.dot_visible = true;
-                s.dot_x = dot_x_; s.dot_y = dot_y_; s.dot_size = DC_DOT_SMALL;
-            }
-            break;
+            case RANDOM_WAIT:
+                // Keep the last captured dot up while the app saves its frames and
+                // picks the next point: the user keeps fixating instead of the
+                // target blinking out.
+                if (dot_on_) {
+                    s.dot_visible = true;
+                    s.dot_x = dot_x_;
+                    s.dot_y = dot_y_;
+                    s.dot_size = DC_DOT_SMALL;
+                }
+                break;
 
-        case RANDOM_ANIM:
-            anim_point(dt, net, g, s);
-            break;
+            case RANDOM_ANIM:
+                anim_point(dt, net, g, s);
+                break;
 
-        case FINISHED:
-            break;
+            case FINISHED:
+                break;
         }
         // Remember what is on screen so the next target can glide from it.
         dot_on_ = s.dot_visible;
-        if (dot_on_) { dot_x_ = s.dot_x; dot_y_ = s.dot_y; }
+        if (dot_on_) {
+            dot_x_ = s.dot_x;
+            dot_y_ = s.dot_y;
+        }
 
-        s.text_visible   = show_text_;
-        s.text           = text_;
-        s.progress_total = 0;   // the app owns pacing; no progress pips here
+        s.text_visible = show_text_;
+        s.text = text_;
+        s.progress_total = 0;  // the app owns pacing; no progress pips here
         return s;
     }
     bool finished() const override { return state_ == FINISHED; }
@@ -565,10 +638,9 @@ private:
             if (is_global(c.code)) {
                 apply_global(c, net);
             } else if (is_between_passes(c.code)) {
-                if (state_ == RANDOM_ANIM) break;               // let the point finish first
+                if (state_ == RANDOM_ANIM) break;  // let the point finish first
                 if (state_ != IDLE) {
-                    std::cout << "[WARN] Command " << c.code
-                              << " during a running pass; abandoning that pass\n";
+                    std::cout << "[WARN] Command " << c.code << " during a running pass; abandoning that pass\n";
                     end_pass();
                 }
                 apply_idle(c, net);
@@ -581,12 +653,13 @@ private:
                 } else {
                     nx_ = std::clamp(c.x, -1.0f, 1.0f);
                     ny_ = std::clamp(c.y, -1.0f, 1.0f);
-                    t_ = 0; rsub_ = 0;
+                    t_ = 0;
+                    rsub_ = 0;
                     begin_glide();
                     state_ = RANDOM_ANIM;
                 }
             } else if (c.code == 119) {
-                if (state_ == RANDOM_ANIM) break;               // normal: ends after the hold
+                if (state_ == RANDOM_ANIM) break;  // normal: ends after the hold
                 if (state_ != RANDOM_WAIT && state_ != IDLE)
                     std::cout << "[WARN] 119 during a running pass; ending it early\n";
                 net.send_int32(19);
@@ -600,38 +673,54 @@ private:
 
     void apply_global(const Cmd& c, UdpNet& net) {
         switch (c.code) {
-        case 50:  text_ = c.str.substr(0, 400); show_text_ = true; break;
-        case 98:  show_text_ = false; text_.clear(); break;
-        case 99:  center_dot_ = false; break;
-        case 114: pin_dot_ = false; break;
-        case 130: case 131: case 132:
-            // Pupil-reference illumination: dim, bright, or neutral.
-            backdrop_gray_ = c.code == 130 ? 24 : (c.code == 131 ? 208 : 96);
-            net.send_int32(22);
-            break;
-        case 200:
-            state_ = FINISHED;
-            break;
-        default: break;
+            case 50:
+                text_ = c.str.substr(0, 400);
+                show_text_ = true;
+                break;
+            case 98:
+                show_text_ = false;
+                text_.clear();
+                break;
+            case 99:
+                center_dot_ = false;
+                break;
+            case 114:
+                pin_dot_ = false;
+                break;
+            case 130:
+            case 131:
+            case 132:
+                // Pupil-reference illumination: dim, bright, or neutral.
+                backdrop_gray_ = c.code == 130 ? 24 : (c.code == 131 ? 208 : 96);
+                net.send_int32(22);
+                break;
+            case 200:
+                state_ = FINISHED;
+                break;
+            default:
+                break;
         }
     }
 
     void apply_idle(const Cmd& c, UdpNet& net) {
         if (c.code >= 100 && c.code <= 106) {
             static const Str kPassTitle[] = {
-                Str::FollowTitle, Str::SquintTitle, Str::WidenTitle, Str::BrowsUpFull,
+                Str::FollowTitle, Str::SquintTitle,   Str::WidenTitle,    Str::BrowsUpFull,
                 Str::BrowsUpHalf, Str::BrowsDownFull, Str::BrowsDownHalf,
             };
             const Str title = kPassTitle[c.code - 100];
-            show_default_text(c.code == 100 ? std::string(tr(title))
-                                            : tr2(title, Str::FollowLower));
-            include_dc_ = true; center_dot_ = false;
-            t_ = 0; state_ = PASS_TEXT;
+            show_default_text(c.code == 100 ? std::string(tr(title)) : tr2(title, Str::FollowLower));
+            include_dc_ = true;
+            center_dot_ = false;
+            t_ = 0;
+            state_ = PASS_TEXT;
         } else if (c.code == 110 || c.code == 112) {
             show_default_text(c.code == 112 ? tr2(Str::SquintTitle, Str::EachDotAppears)
                                             : std::string(tr(Str::EachDotAppears)));
-            include_dc_ = false; center_dot_ = false;
-            t_ = 0; state_ = PASS_TEXT;
+            include_dc_ = false;
+            center_dot_ = false;
+            t_ = 0;
+            state_ = PASS_TEXT;
         } else if (c.code == 113) {
             if (!c.has_xy) {
                 std::cout << "[WARN] Ignoring 113 with missing/non-finite coordinates\n";
@@ -642,15 +731,21 @@ private:
             // exe that ignores this command).
             pin_x_ = std::clamp(c.x, -1.0f, 1.0f);
             pin_y_ = std::clamp(c.y, -1.0f, 1.0f);
-            pin_t_ = 0; pin_dot_ = true;
+            pin_t_ = 0;
+            pin_dot_ = true;
             begin_glide();
             net.send_int32(21);
         } else if (c.code == 120) {
             show_default_text(tr2(Str::CenterTitle, Str::ShiftHeadset));
-            if (!center_dot_) { center_t_ = 0; begin_glide(); }
+            if (!center_dot_) {
+                center_t_ = 0;
+                begin_glide();
+            }
             center_dot_ = true;
         } else if (c.code == 121) {
-            center_dot_ = false; show_text_ = false; text_.clear();
+            center_dot_ = false;
+            show_text_ = false;
+            text_.clear();
             net.send_int32(19);
         }
     }
@@ -667,12 +762,14 @@ private:
     // The next target glides in from the dot currently on screen (if any).
     void begin_glide() {
         glide_ = dot_on_;
-        glide_x_ = dot_x_; glide_y_ = dot_y_;
+        glide_x_ = dot_x_;
+        glide_y_ = dot_y_;
     }
 
     // Position along the glide from the remembered origin to (tx, ty).
     void glide(double t, float tx, float ty, float& x, float& y) const {
-        x = tx; y = ty;
+        x = tx;
+        y = ty;
         if (glide_ && t < DC_APPEAR_S) {
             const float k = ease_in_out((float)(t / DC_APPEAR_S));
             x = glide_x_ + (tx - glide_x_) * k;
@@ -685,7 +782,8 @@ private:
     void show_converging(Scene& s, float tx, float ty, double t) {
         s.dot_visible = true;
         s.dot_size = DC_DOT_SMALL;
-        s.ring_x = tx; s.ring_y = ty;
+        s.ring_x = tx;
+        s.ring_y = ty;
         const float f = (float)std::min(1.0, t / DC_SHRINK_S);
         s.ring_size = f < 1.0f ? DC_DOT_LARGE + (DC_DOT_SMALL - DC_DOT_LARGE) * converge(f) : 0.0f;
         glide(t, tx, ty, s.dot_x, s.dot_y);
@@ -699,61 +797,75 @@ private:
         float x = tx, y = ty;
         s.dot_visible = true;
         s.dot_size = DC_DOT_SMALL;
-        s.ring_x = tx; s.ring_y = ty;
+        s.ring_x = tx;
+        s.ring_y = ty;
         if (rsub_ == 0) {
             s.ring_size = DC_DOT_LARGE;
             glide(t_, tx, ty, x, y);
-            if (t_ >= DC_APPEAR_S) { t_ = 0; rsub_ = 1; }
+            if (t_ >= DC_APPEAR_S) {
+                t_ = 0;
+                rsub_ = 1;
+            }
         } else if (rsub_ == 1) {
             const float f = (float)std::min(1.0, t_ / DC_SHRINK_S);
             s.ring_size = DC_DOT_LARGE + (DC_DOT_SMALL - DC_DOT_LARGE) * converge(f);
-            if (t_ >= DC_SHRINK_S) { t_ = 0; rsub_ = 2; net.send_int32(20); }
+            if (t_ >= DC_SHRINK_S) {
+                t_ = 0;
+                rsub_ = 2;
+                net.send_int32(20);
+            }
         } else {
             s.capture_hold = true;
-            if (t_ >= DC_HOLD_S) { state_ = RANDOM_WAIT; }
+            if (t_ >= DC_HOLD_S) {
+                state_ = RANDOM_WAIT;
+            }
         }
-        s.dot_x = x; s.dot_y = y;
+        s.dot_x = x;
+        s.dot_y = y;
         s.dot_cut = !glide_;
     }
 
     void end_pass() {
-        state_ = IDLE; show_text_ = false; text_.clear(); center_dot_ = false;
+        state_ = IDLE;
+        show_text_ = false;
+        text_.clear();
+        center_dot_ = false;
         dot_on_ = false;
     }
 
-    State  state_ = IDLE;
+    State state_ = IDLE;
     std::deque<Cmd> queue_;
-    bool   show_text_ = false, center_dot_ = false, include_dc_ = false;
-    bool   pin_dot_ = false;
+    bool show_text_ = false, center_dot_ = false, include_dc_ = false;
+    bool pin_dot_ = false;
     uint8_t backdrop_gray_ = cfg::BACKDROP_GREY;
-    float  pin_x_ = 0, pin_y_ = 0;
+    float pin_x_ = 0, pin_y_ = 0;
     double pin_t_ = 0, center_t_ = 0;
     std::string text_;
     double t_ = 0;
-    int    rsub_ = 0;
-    float  nx_ = 0, ny_ = 0;
+    int rsub_ = 0;
+    float nx_ = 0, ny_ = 0;
     // The dot currently on screen (metres), for glides and RANDOM_WAIT.
-    bool   dot_on_ = false;
-    float  dot_x_ = 0, dot_y_ = 0;
+    bool dot_on_ = false;
+    float dot_x_ = 0, dot_y_ = 0;
     // Origin of the current glide (captured when the command arrived).
-    bool   glide_ = false;
-    float  glide_x_ = 0, glide_y_ = 0;
+    bool glide_ = false;
+    float glide_x_ = 0, glide_y_ = 0;
     PointSequence seq_;
 };
 
-} // namespace
+}  // namespace
 
 bool is_mode_name(const std::string& n) {
-    return n == "center" || n == "9point" || n == "ellipse" || n == "datacollect" ||
-           n == "finetune" || n == "interactive";
+    return n == "center" || n == "9point" || n == "ellipse" || n == "datacollect" || n == "finetune" ||
+           n == "interactive";
 }
 
 std::unique_ptr<IMode> make_mode(const std::string& name) {
-    if (name == "center")       return std::make_unique<ClassicMode>(true);
-    if (name == "9point")       return std::make_unique<ClassicMode>(false);
-    if (name == "ellipse")      return std::make_unique<EllipseMode>();
-    if (name == "datacollect")  return std::make_unique<DataCollectMode>();
-    if (name == "finetune")     return std::make_unique<FineTuneMode>();
-    if (name == "interactive")  return std::make_unique<InteractiveMode>();
+    if (name == "center") return std::make_unique<ClassicMode>(true);
+    if (name == "9point") return std::make_unique<ClassicMode>(false);
+    if (name == "ellipse") return std::make_unique<EllipseMode>();
+    if (name == "datacollect") return std::make_unique<DataCollectMode>();
+    if (name == "finetune") return std::make_unique<FineTuneMode>();
+    if (name == "interactive") return std::make_unique<InteractiveMode>();
     return nullptr;
 }

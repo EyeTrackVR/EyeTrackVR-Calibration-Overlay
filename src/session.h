@@ -25,18 +25,18 @@ public:
     bool started() const { return state_ != WARMUP; }
 
     // Tunables (seconds).
-    static constexpr double kMinWarmup = 0.25;   // let the backdrop start fading in
-    static constexpr double kMaxWarmup = 4.0;    // then proceed on fallback geometry
-    static constexpr double kMaxOutro  = 1.5;    // hard cap on the fade-out
+    static constexpr double kMinWarmup = 0.25;  // let the backdrop start fading in
+    static constexpr double kMaxWarmup = 4.0;   // then proceed on fallback geometry
+    static constexpr double kMaxOutro = 1.5;    // hard cap on the fade-out
 
 private:
     enum State { WARMUP, RUNNING, OUTRO, DONE };
 
-    IMode&     mode_;
-    UdpNet&    net_;
+    IMode& mode_;
+    UdpNet& net_;
     Presenter& presenter_;
-    State      state_ = WARMUP;
-    double     t_ = 0.0;
-    bool       quit_ = false;
-    Scene      last_;
+    State state_ = WARMUP;
+    double t_ = 0.0;
+    bool quit_ = false;
+    Scene last_;
 };

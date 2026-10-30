@@ -14,7 +14,7 @@ public:
     UdpNet() = default;
     virtual ~UdpNet();
 
-    UdpNet(const UdpNet&)            = delete;
+    UdpNet(const UdpNet&) = delete;
     UdpNet& operator=(const UdpNet&) = delete;
 
     // Create the send socket targeting 127.0.0.1:send_port. Returns false on error.
