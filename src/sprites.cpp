@@ -9,10 +9,10 @@ namespace {
 using raster::Rgba;
 
 // Flat palette shared with the instruction panel (text.cpp kAccent / card).
-const Rgba kViolet = raster::hex(0xB58CFF);
-const Rgba kInk = raster::hex(0x10121A);
-const Rgba kWhite = raster::hex(0xFFFFFF);
-const Rgba kRing = raster::hex(0xE6DAFF);
+constexpr Rgba kViolet = raster::hex(0xB58CFF);
+constexpr Rgba kInk = raster::hex(0x10121A);
+constexpr Rgba kWhite = raster::hex(0xFFFFFF);
+constexpr Rgba kRing = raster::hex(0xE6DAFF);
 
 Image make_dot() {
     constexpr int S = 128;

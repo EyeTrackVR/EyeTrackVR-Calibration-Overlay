@@ -20,7 +20,7 @@ inline float smoothstep(float e0, float e1, float x) {
     const float t = clamp01((x - e0) / (e1 - e0));
     return t * t * (3.0f - 2.0f * t);
 }
-inline Rgba hex(uint32_t rgb, float a = 1.0f) {
+constexpr Rgba hex(uint32_t rgb, float a = 1.0f) {
     return {(float)((rgb >> 16) & 0xFF), (float)((rgb >> 8) & 0xFF), (float)(rgb & 0xFF), a};
 }
 inline Rgba mix(Rgba a, Rgba b, float t) {

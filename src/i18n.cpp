@@ -124,7 +124,6 @@ const Catalog kCatalogs[] = {
 };
 
 const Catalog* g_active = &kCatalogs[0];
-std::string g_code = "en";
 
 }  // namespace
 
@@ -141,11 +140,10 @@ std::string set_language(const std::string& code) {
             g_active = &c;
             break;
         }
-    g_code = g_active->code;
-    return g_code;
+    return g_active->code;
 }
 
-const std::string& language() { return g_code; }
+std::string language() { return g_active->code; }
 
 std::vector<std::string> languages() {
     std::vector<std::string> out;

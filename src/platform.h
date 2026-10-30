@@ -31,8 +31,11 @@ public:
 
 private:
     bool active_ = false;
-    void* handle_ = nullptr;  // Windows process handle
-    long ppid_ = 0;           // POSIX parent pid
+#ifdef _WIN32
+    void* handle_ = nullptr;  // process handle
+#else
+    long ppid_ = 0;  // parent pid
+#endif
     double next_check_ = 0.0;
     bool alive_ = true;
 };

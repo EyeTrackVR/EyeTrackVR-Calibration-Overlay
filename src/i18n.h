@@ -43,7 +43,7 @@ enum class Str {
 // Select the active language. Returns the code actually used ("en" when the
 // requested one is unknown).
 std::string set_language(const std::string& code);
-const std::string& language();
+std::string language();
 
 // Supported language codes, English first.
 std::vector<std::string> languages();

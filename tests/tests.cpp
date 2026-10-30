@@ -15,6 +15,7 @@
 #include "text.h"
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -94,6 +95,7 @@ struct FakeNet : UdpNet {
     }
     std::vector<int32_t> values() const {
         std::vector<int32_t> out;
+        out.reserve(sent.size());
         for (auto& p : sent) out.push_back(p.second);
         return out;
     }
@@ -336,6 +338,7 @@ static void test_modes(const GazeRange& g) {
         for (int i = 0; i <= 10; ++i) want.push_back(i);
         want.push_back(100);
         std::vector<int32_t> got;
+        got.reserve(ft.signals.size());
         for (auto& s : ft.signals) got.push_back(s.second);
         CHECK(got == want);
         CHECK(ft.finished);
@@ -408,7 +411,7 @@ struct Interactive {
     explicit Interactive(const GazeRange& gr) : g(gr) { mode->on_start(net); }
     void step(double secs) {
         const double dt = 1.0 / 90;
-        for (double e = 0; e < secs - 1e-9 && !mode->finished(); e += dt) {
+        for (int i = 0; i * dt < secs - 1e-9 && !mode->finished(); ++i) {
             t += dt;
             net.now = t;
             last = mode->update(dt, net, g);
@@ -818,13 +821,21 @@ static void test_i18n() {
     CHECK(std::string(i18n::tr(i18n::Str::FollowTitle)) == "Follow the dot");
 }
 
+// Parses "shard/shards" for the layout suite.
+static bool parse_shard(const char* s, int& shard, int& shards) {
+    const char* end = s + std::strlen(s);
+    auto r = std::from_chars(s, end, shard);
+    if (r.ec != std::errc() || r.ptr == end || *r.ptr != '/') return false;
+    r = std::from_chars(r.ptr + 1, end, shards);
+    return r.ec == std::errc() && r.ptr == end && shards >= 1 && shard >= 0 && shard < shards;
+}
+
 // etvr_tests [suite [shard/shards]]: no suite runs everything; CTest runs one
 // suite (or one layout shard) per test so they spread over the cores.
 int main(int argc, char** argv) {
     const std::string only = argc > 1 ? argv[1] : "";
     int shard = 0, shards = 1;
-    if (argc > 2 &&
-        (std::sscanf(argv[2], "%d/%d", &shard, &shards) != 2 || shards < 1 || shard < 0 || shard >= shards)) {
+    if (argc > 2 && !parse_shard(argv[2], shard, shards)) {
         std::printf("bad shard '%s', expected i/n\n", argv[2]);
         return 2;
     }

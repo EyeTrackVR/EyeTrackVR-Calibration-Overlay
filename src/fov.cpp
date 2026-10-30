@@ -5,6 +5,7 @@
 #include <cmath>
 #include <iostream>
 #include <sstream>
+#include <utility>
 
 namespace {
 
@@ -319,7 +320,7 @@ bool compute_view_geometry(const EyeGeom eyes[2], float dist, const FovConfig& c
     if (a.cardinal_trim < 0.999f) log << "cardinal extents trimmed to stay visible (min " << a.cardinal_trim << "x); ";
     if (a.ellipse_scale < 0.999f) log << "range scaled " << a.ellipse_scale << "x so diagonal targets stay visible; ";
     if (notes) *notes = log.str();
-    out = vg;
+    out = std::move(vg);
     return true;
 }
 

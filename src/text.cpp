@@ -33,15 +33,15 @@ constexpr float kBarH = 7.0f;
 constexpr float kBarMinW = 260.0f;
 constexpr int kMaxPips = 24;
 
-const Rgba kCardTop = raster::hex(0x1C1F2B, 0.92f);
-const Rgba kCardBottom = raster::hex(0x10121A, 0.92f);
-const Rgba kBorder = raster::hex(0xFFFFFF, 0.10f);
-const Rgba kTitle = raster::hex(0xFFFFFF);
-const Rgba kTitleOk = raster::hex(0x8DF0B8);
-const Rgba kSub = raster::hex(0xC4C8D6);
-const Rgba kAccent = raster::hex(0xB58CFF);
-const Rgba kAccentOk = raster::hex(0x6BE3A0);
-const Rgba kTrack = raster::hex(0xFFFFFF, 0.16f);
+constexpr Rgba kCardTop = raster::hex(0x1C1F2B, 0.92f);
+constexpr Rgba kCardBottom = raster::hex(0x10121A, 0.92f);
+constexpr Rgba kBorder = raster::hex(0xFFFFFF, 0.10f);
+constexpr Rgba kTitle = raster::hex(0xFFFFFF);
+constexpr Rgba kTitleOk = raster::hex(0x8DF0B8);
+constexpr Rgba kSub = raster::hex(0xC4C8D6);
+constexpr Rgba kAccent = raster::hex(0xB58CFF);
+constexpr Rgba kAccentOk = raster::hex(0x6BE3A0);
+constexpr Rgba kTrack = raster::hex(0xFFFFFF, 0.16f);
 
 struct Font {
     std::string path;
@@ -161,7 +161,9 @@ struct TextRenderer::Impl {
                 out.push_back(w.substr(0, n));
                 w = w.substr(n);
             }
-            const std::u32string trial = line.empty() ? w : line + U' ' + w;
+            std::u32string trial = line;
+            if (!trial.empty()) trial += U' ';
+            trial += w;
             if (!line.empty() && layout(trial, em, nullptr) > max_w) {
                 flush();
                 line = w;
@@ -174,7 +176,7 @@ struct TextRenderer::Impl {
             std::u32string& last = out.back();
             while (!last.empty() && layout(last + U"…", em, nullptr) > max_w) last.pop_back();
             while (!last.empty() && last.back() == U' ') last.pop_back();
-            last += U"…";
+            last += U'…';
         }
         for (const auto& s : out) {
             Line l;

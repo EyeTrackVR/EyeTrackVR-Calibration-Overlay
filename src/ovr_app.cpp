@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <iostream>
 #include <sstream>
+#include <utility>
 #include <string>
 #include <thread>
 #include <vector>
@@ -318,7 +319,7 @@ bool OvrApp::compute_geometry() {
     for (int e = 0; e < 2; ++e) log_eye(e ? "R" : "L", g.eyes[e]);
     if (!notes.empty()) std::cout << "[INFO] Geometry: " << notes << "\n";
     if (!geom_.synthetic) std::cout << "[INFO] Headset geometry changed; targets follow the new range\n";
-    geom_ = g;
+    geom_ = std::move(g);
     log_view_geometry(geom_, fov_cfg_, cfg::OVERLAY_DIST);
     return true;
 }
