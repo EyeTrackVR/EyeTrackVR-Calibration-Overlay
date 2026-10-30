@@ -61,3 +61,6 @@
 #*.PDF   diff=astextplain
 #*.rtf   diff=astextplain
 #*.RTF   diff=astextplain
+
+# Prebuilt runtimes in dist/ are committed byte-for-byte (no line-ending conversion).
+dist/** -text

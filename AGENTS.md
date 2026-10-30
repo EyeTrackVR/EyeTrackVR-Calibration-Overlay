@@ -18,6 +18,8 @@ ctest --test-dir build -C Release --output-on-failure     # unit + protocol test
 
 `build/` (VS 2022) and `build-release/` exist and are configured. Core sources are globbed (`CONFIGURE_DEPENDS`) into the `etvr_core` static lib; the VR backends + `main.cpp` are listed explicitly in CMakeLists.txt. Run the binary from its output directory (`build/Release/EyeTrackVR-Overlay.exe`); post-build copies the font to `assets/` and the DLLs. Linux is verified in WSL `Ubuntu-22.04` (GCC 11, OpenXR 1.0.20 headers — stay within that API): `cmake -S . -B /root/etvr-build -G Ninja && cmake --build /root/etvr-build && (cd /root/etvr-build && ctest)`. Note `$?` does not survive the Git-Bash → wsl.exe hop; check exit codes inside Linux.
 
+EyeTrackVR ships the prebuilt runtimes in `dist/` (windows, linux, linux-arm64). After a source change: commit it, run `build-dist.bat`, commit `dist/`. Each folder's `SOURCE_TREE` must match the hash of `dist/SOURCE_INPUTS` at HEAD or EyeTrackVR's tests fail.
+
 Running in a headset requires an active VR runtime. Without one, use the simulator: `--backend=sim --sim-hmd=beyond2 --sim-fast --sim-dump=<dir> --sim-debug` writes per-eye PNGs (debug draws the target ellipse and lens outline). The exe tees stdout (timestamped, flushed per line) to `<exe-dir>/eyetrackvr_overlay.log` (temp dir if not writable).
 
 ```
