@@ -21,7 +21,7 @@ public:
     virtual bool needs_recv() const { return false; }
 };
 
-// name: "center" | "9point" | "ellipse" | "datacollect" | "finetune" | "interactive".
+// name: "center" | "9point" | "ellipse" | "datacollect" | "finetune" | "interactive" | "preview".
 // Returns nullptr for an unknown name.
 std::unique_ptr<IMode> make_mode(const std::string& name);
 bool is_mode_name(const std::string& name);

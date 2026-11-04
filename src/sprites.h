@@ -27,4 +27,8 @@ const Image& ring();
 const Image& trail();
 inline constexpr float kTrailWidth = 0.62f;  // trail thickness / visible dot diameter
 
+// Live gaze cursor (preview mode): a hollow ring with a dark outline, so it
+// reads on every backdrop and leaves the reference dot visible through it.
+const Image& gaze();
+
 }  // namespace sprites

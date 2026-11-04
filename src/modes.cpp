@@ -10,7 +10,7 @@
 // ── UDP protocol ──────────────────────────────────────────────────────────────
 //
 // Big-endian int32 signals OUT to 127.0.0.1:2112, commands IN on 2113
-// (interactive mode only). Byte-compatible with the original OpenVR build.
+// (interactive and preview modes). Byte-compatible with the original OpenVR build.
 //
 // Signals (overlay → app)
 //   0..8      9point / datacollect phase 1 / interactive pass: point i captured
@@ -21,7 +21,7 @@
 //   21        interactive pin ack (after 113)
 //   22        interactive backdrop-level ack (after 130/131/132)
 //   0 (ellipse) start sampling;  0..10 then 100 finetune points / done
-//   255       interactive overlay ready
+//   255       interactive / preview overlay ready
 //
 // Commands (app → overlay), interactive mode
 //   50 <utf8>   show text                98   hide text
@@ -32,6 +32,10 @@
 //   119         end pass, signal 19       120  centre dot + text   121  end it, signal 19
 //   130/131/132 dim / bright / neutral backdrop, ack 22
 //   200         quit
+//
+// Commands (app → overlay), preview mode
+//   140 <f32 tan_x> <f32 tan_y> <f32 openness>  live gaze sample (see PreviewMode)
+//   50 / 98 text as above                       200  quit
 
 namespace {
 
@@ -110,6 +114,8 @@ struct Cmd {
     int32_t code = 0;
     bool has_xy = false;
     float x = 0, y = 0;
+    bool has_w = false;
+    float w = 0;  // third float (140: eye openness)
     std::string str;
 };
 
@@ -125,11 +131,16 @@ bool poll_cmd(UdpNet& net, Cmd& out) {
         }
         out = Cmd{};
         out.code = (int32_t)be32(buf);
-        if ((out.code == 111 || out.code == 113) && len >= 12) {
+        if ((out.code == 111 || out.code == 113 || out.code == 140) && len >= 12) {
             const uint32_t xi = be32(buf + 4), yi = be32(buf + 8);
             std::memcpy(&out.x, &xi, 4);
             std::memcpy(&out.y, &yi, 4);
             out.has_xy = std::isfinite(out.x) && std::isfinite(out.y);
+            if (out.code == 140 && len >= 16) {
+                const uint32_t wi = be32(buf + 12);
+                std::memcpy(&out.w, &wi, 4);
+                out.has_w = std::isfinite(out.w);
+            }
         } else if (out.code == 50 && len > 4) {
             out.str.assign((const char*)buf + 4, (size_t)len - 4);
         }
@@ -853,11 +864,99 @@ private:
     PointSequence seq_;
 };
 
+// ── preview (live gaze streamed by the EyeTrackVR Python app) ─────────────────
+//
+// Shows where the app says the user is looking, so tracking and calibration
+// can be checked in the headset. A reference dot steps between the centre and
+// four directions; the user looks at it and sees how closely the gaze cursor
+// stays on it. The app streams, at its tracking rate:
+//
+//   140 <f32 tan_x> <f32 tan_y> <f32 openness>
+//
+// tan_x / tan_y are the tangents of the gaze yaw and pitch in head space
+// (+x right, +y up), so the cursor lands at the true angle regardless of the
+// overlay's gaze range. openness (0..1) fades the cursor as the eyes close.
+// Without a fresh sample the cursor fades out. 50 / 98 show / hide the
+// instruction text and 200 quits, as in interactive mode.
+class PreviewMode : public IMode {
+public:
+    static constexpr double kStaleS = 0.3;    // cursor hides without a sample this long
+    static constexpr double kStepS = 3.0;     // time on each reference position
+    static constexpr int kMaxPerFrame = 512;  // bounds work if the app floods the port
+    static constexpr float kMaxTan = 3.0f;    // ≈72°: anything beyond is not a gaze
+
+    bool needs_recv() const override { return true; }
+    void on_start(UdpNet& net) override { net.send_int32(255); }  // overlay ready
+
+    Scene update(double dt, UdpNet& net, const GazeRange& g) override {
+        Cmd c;
+        for (int i = 0; i < kMaxPerFrame && poll_cmd(net, c); ++i) apply(c);
+        since_sample_ += dt;
+        t_ += dt;
+
+        Scene s;
+        const int step = (int)(t_ / kStepS) % 5;
+        s.dot_visible = true;
+        s.dot_x = g.x(REF[step][0]);
+        s.dot_y = g.y(REF[step][1]);
+        s.dot_size = DC_DOT_SMALL;
+        s.dot_cut = step != step_;
+        step_ = step;
+
+        s.gaze_visible = has_sample_ && since_sample_ < kStaleS;
+        s.gaze_x = gaze_x_ * cfg::OVERLAY_DIST;
+        s.gaze_y = gaze_y_ * cfg::OVERLAY_DIST;
+        s.gaze_alpha = openness_;
+
+        s.text_visible = show_text_;
+        s.text = text_;
+        return s;
+    }
+    bool finished() const override { return finished_; }
+
+private:
+    // Centre, then right, up, left, down at 60% of the gaze range.
+    static constexpr float REF[5][2] = {{0.0f, 0.0f}, {0.6f, 0.0f}, {0.0f, 0.6f}, {-0.6f, 0.0f}, {0.0f, -0.6f}};
+
+    void apply(const Cmd& c) {
+        switch (c.code) {
+            case 140:
+                if (c.has_xy && std::fabs(c.x) <= kMaxTan && std::fabs(c.y) <= kMaxTan) {
+                    gaze_x_ = c.x;
+                    gaze_y_ = c.y;
+                    openness_ = c.has_w ? std::clamp(c.w, 0.0f, 1.0f) : 1.0f;
+                    has_sample_ = true;
+                    since_sample_ = 0.0;
+                }
+                break;
+            case 50:
+                text_ = c.str.substr(0, 400);
+                show_text_ = true;
+                break;
+            case 98:
+                show_text_ = false;
+                text_.clear();
+                break;
+            case 200:
+                finished_ = true;
+                break;
+            default:
+                std::cout << "[WARN] Unknown command " << c.code << " ignored in preview mode\n";
+        }
+    }
+
+    double t_ = 0.0, since_sample_ = 0.0;
+    int step_ = -1;
+    bool has_sample_ = false, show_text_ = false, finished_ = false;
+    float gaze_x_ = 0.0f, gaze_y_ = 0.0f, openness_ = 1.0f;
+    std::string text_;
+};
+
 }  // namespace
 
 bool is_mode_name(const std::string& n) {
     return n == "center" || n == "9point" || n == "ellipse" || n == "datacollect" || n == "finetune" ||
-           n == "interactive";
+           n == "interactive" || n == "preview";
 }
 
 std::unique_ptr<IMode> make_mode(const std::string& name) {
@@ -867,5 +966,6 @@ std::unique_ptr<IMode> make_mode(const std::string& name) {
     if (name == "datacollect") return std::make_unique<DataCollectMode>();
     if (name == "finetune") return std::make_unique<FineTuneMode>();
     if (name == "interactive") return std::make_unique<InteractiveMode>();
+    if (name == "preview") return std::make_unique<PreviewMode>();
     return nullptr;
 }

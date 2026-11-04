@@ -77,7 +77,7 @@ Timings and signals are identical to the previous build — only presentation ch
 ## Modes
 
 ```
-EyeTrackVR-Overlay [9point|center|ellipse|datacollect|finetune|interactive]
+EyeTrackVR-Overlay [9point|center|ellipse|datacollect|finetune|interactive|preview]
                    [--coverage=0.70] [--max-deg=30] [--max-deg-up=15] [--max-deg-down=40]
                    [--center-deg=0] [--backend=auto|openvr|openxr|sim] [--runtime=keep|<path.json>]
 ```
@@ -90,6 +90,7 @@ EyeTrackVR-Overlay [9point|center|ellipse|datacollect|finetune|interactive]
 | `datacollect` | 9-point normal pass + 9-point squint pass                       |
 | `finetune`    | 11-point two-ring fine-tune; signals 0–10, then 100             |
 | `interactive` | driven by the EyeTrackVR Python app over UDP                    |
+| `preview`     | live gaze cursor streamed by the app, over a reference dot      |
 
 - `--coverage=` (0–1): fraction of the binocular FOV the outermost targets reach.
 - `--max-deg=`, `--max-deg-up=`, `--max-deg-down=`: eccentricity caps in degrees.
@@ -103,8 +104,15 @@ EyeTrackVR-Overlay [9point|center|ellipse|datacollect|finetune|interactive]
 ## UDP protocol
 
 Unchanged — the Python side needs no changes. Big-endian int32 signals are sent to
-`127.0.0.1:2112`; interactive mode receives commands on `2113`. The full
-command/signal table is at the top of `src/modes.cpp`.
+`127.0.0.1:2112`; interactive and preview modes receive commands on `2113`. The
+full command/signal table is at the top of `src/modes.cpp`.
+
+In preview mode the app streams `140 <f32 tan_x> <f32 tan_y> <f32 openness>` at its
+tracking rate: the tangents of the gaze yaw and pitch in head space (+x right, +y
+up) and the eye openness (0–1). A green ring is drawn at that gaze over a reference
+dot that steps between the centre and four directions, so tracking and calibration
+can be checked in the headset. The ring fades while the eyes close and hides when
+no sample has arrived for 0.3 s; `200` quits.
 
 Robustness in interactive mode: commands are queued in order instead of dropped;
 `200` (quit) works at any time; if the app starts a new pass while an old one is

@@ -38,6 +38,13 @@ struct Scene {
     // presenter keeps everything around it still (no panel appearing/moving).
     bool capture_hold = false;
 
+    // Live gaze cursor (preview mode): where the user is looking, as reported by
+    // the app. gaze_alpha fades it, e.g. while the eyes are closed.
+    bool gaze_visible = false;
+    float gaze_x = 0.0f;
+    float gaze_y = 0.0f;
+    float gaze_alpha = 1.0f;
+
     // Instruction panel. First line is the title, further lines the subtitle.
     bool text_visible = false;
     std::string text;

@@ -10,7 +10,8 @@
 //
 // Turns the Scene a mode produces into the Frame a backend composites, adding
 // everything purely cosmetic: backdrop fade in/out, dot pop-in/out, the
-// converging attention ring, the dot's motion trail, and the instruction panel.
+// converging attention ring, the dot's motion trail, the live gaze cursor's
+// fades, and the instruction panel.
 //
 // Panel layout is the important part. The panel is placed in one of a few
 // slots (centre when no target is shown; below or above the target field
@@ -51,6 +52,7 @@ private:
     };
 
     void update_target(const Scene& s, float dt);
+    void update_gaze(const Scene& s, float dt);
     void update_panel(const Scene& s, float dt, const ViewGeometry& g);
     void layout_slots(const ViewGeometry& g);
     bool slot_rect(int slot, Rect& r) const;
@@ -79,6 +81,9 @@ private:
     double clock_ = 0.0;
     void trail_quad(float dot_size, float dot_alpha, Quad& out) const;
 
+    // Gaze cursor.
+    float gaze_vis_ = 0.0f;  // 0..1 visibility progress
+    float gaze_x_ = 0.0f, gaze_y_ = 0.0f, gaze_alpha_ = 1.0f;
     // Ring.
     float ring_in_ = 0.0f;
     float ring_x_ = 0.0f, ring_y_ = 0.0f, ring_size_ = 0.0f;

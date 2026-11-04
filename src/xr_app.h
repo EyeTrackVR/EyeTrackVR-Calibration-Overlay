@@ -93,7 +93,7 @@ private:
     VkContext vk_;
 
     // Content
-    QuadLayer panel_, ring_, trail_, dot_;
+    QuadLayer panel_, ring_, trail_, dot_, gaze_;
 
     // Grey full-view background (opaque projection layer behind the quads).
     Swapchain proj_sc_[2];
