@@ -56,13 +56,14 @@ target_link_libraries(EyeTrackVR-Overlay PRIVATE etvr_core OpenXR::openxr_loader
 # Uses the bundled SDK in external/OpenVR. When disabled, ovr_app.cpp compiles
 # to inert stubs (HAVE_OPENVR undefined) and only the OpenXR backend is available.
 set(OPENVR_SDK_DIR "${PROJECT_SOURCE_DIR}/external/OpenVR")
-# The SDK's Linux library: linux64 on x86_64, linuxarm64 on aarch64 (Steam Frame).
+# The SDK's stripped Linux runtime in bin/: linux64 on x86_64, linuxarm64 on
+# aarch64 (Steam Frame).
 set(OPENVR_LINUX_LIB "")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
-        set(OPENVR_LINUX_LIB "${OPENVR_SDK_DIR}/lib/linux64/libopenvr_api.so")
+        set(OPENVR_LINUX_LIB "${OPENVR_SDK_DIR}/bin/linux64/libopenvr_api.so")
     elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
-        set(OPENVR_LINUX_LIB "${OPENVR_SDK_DIR}/lib/linuxarm64/libopenvr_api.so")
+        set(OPENVR_LINUX_LIB "${OPENVR_SDK_DIR}/bin/linuxarm64/libopenvr_api.so")
     endif()
 endif()
 if((WIN32 OR (OPENVR_LINUX_LIB AND EXISTS "${OPENVR_LINUX_LIB}"))
