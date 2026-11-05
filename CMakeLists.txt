@@ -81,6 +81,9 @@ if((WIN32 OR (OPENVR_LINUX_LIB AND EXISTS "${OPENVR_LINUX_LIB}"))
         target_link_libraries(EyeTrackVR-Overlay PRIVATE "${OPENVR_LINUX_LIB}")
         set_target_properties(EyeTrackVR-Overlay PROPERTIES
             BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "$ORIGIN")
+        # DT_RPATH, unlike RUNPATH, also applies to the bundled libraries' own
+        # dependencies, so the OpenXR loader finds the bundled jsoncpp.
+        target_link_options(EyeTrackVR-Overlay PRIVATE -Wl,--disable-new-dtags)
         add_custom_command(TARGET EyeTrackVR-Overlay POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${OPENVR_LINUX_LIB}" $<TARGET_FILE_DIR:EyeTrackVR-Overlay>
@@ -107,6 +110,22 @@ add_custom_command(TARGET EyeTrackVR-Overlay POST_BUILD
         "${PROJECT_SOURCE_DIR}/external/font/OpenSans-Regular.ttf"
         $<TARGET_FILE_DIR:EyeTrackVR-Overlay>/assets/OpenSans-Regular.ttf
 )
+
+# ── Install: the self-contained runtime folder EyeTrackVR ships ──────────────
+#   cmake --install build --config Release --prefix <folder>
+install(TARGETS EyeTrackVR-Overlay
+    RUNTIME_DEPENDENCIES
+        PRE_INCLUDE_REGEXES "openvr_api" "openxr_loader" "jsoncpp" "vulkan"
+        PRE_EXCLUDE_REGEXES ".*"
+        DIRECTORIES $<TARGET_FILE_DIR:EyeTrackVR-Overlay>
+    RUNTIME DESTINATION . LIBRARY DESTINATION .)
+install(FILES external/font/OpenSans-Regular.ttf DESTINATION assets)
+install(FILES LICENSE DESTINATION licenses RENAME overlay-MIT.txt)
+install(FILES external/OpenVR/LICENSE DESTINATION licenses RENAME OpenVR-LICENSE.txt)
+install(FILES external/font/OFL.txt DESTINATION licenses RENAME OpenSans-OFL.txt)
+foreach(pkg libopenxr-loader1 libjsoncpp25 libvulkan1 libstb-dev)
+    install(FILES /usr/share/doc/${pkg}/copyright DESTINATION licenses RENAME ${pkg}-copyright.txt OPTIONAL)
+endforeach()
 
 # ── Tests ────────────────────────────────────────────────────────────────────
 if(ETVR_BUILD_TESTS)
