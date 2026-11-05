@@ -56,13 +56,14 @@ target_link_libraries(EyeTrackVR-Overlay PRIVATE etvr_core OpenXR::openxr_loader
 # Uses the bundled SDK in external/OpenVR. When disabled, ovr_app.cpp compiles
 # to inert stubs (HAVE_OPENVR undefined) and only the OpenXR backend is available.
 set(OPENVR_SDK_DIR "${PROJECT_SOURCE_DIR}/external/OpenVR")
-# The SDK's Linux library: linux64 on x86_64, linuxarm64 on aarch64 (Steam Frame).
+# The SDK's stripped Linux runtime in bin/: linux64 on x86_64, linuxarm64 on
+# aarch64 (Steam Frame).
 set(OPENVR_LINUX_LIB "")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
-        set(OPENVR_LINUX_LIB "${OPENVR_SDK_DIR}/lib/linux64/libopenvr_api.so")
+        set(OPENVR_LINUX_LIB "${OPENVR_SDK_DIR}/bin/linux64/libopenvr_api.so")
     elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
-        set(OPENVR_LINUX_LIB "${OPENVR_SDK_DIR}/lib/linuxarm64/libopenvr_api.so")
+        set(OPENVR_LINUX_LIB "${OPENVR_SDK_DIR}/bin/linuxarm64/libopenvr_api.so")
     endif()
 endif()
 if((WIN32 OR (OPENVR_LINUX_LIB AND EXISTS "${OPENVR_LINUX_LIB}"))
@@ -80,6 +81,9 @@ if((WIN32 OR (OPENVR_LINUX_LIB AND EXISTS "${OPENVR_LINUX_LIB}"))
         target_link_libraries(EyeTrackVR-Overlay PRIVATE "${OPENVR_LINUX_LIB}")
         set_target_properties(EyeTrackVR-Overlay PROPERTIES
             BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "$ORIGIN")
+        # DT_RPATH, unlike RUNPATH, also applies to the bundled libraries' own
+        # dependencies, so the OpenXR loader finds the bundled jsoncpp.
+        target_link_options(EyeTrackVR-Overlay PRIVATE -Wl,--disable-new-dtags)
         add_custom_command(TARGET EyeTrackVR-Overlay POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${OPENVR_LINUX_LIB}" $<TARGET_FILE_DIR:EyeTrackVR-Overlay>
@@ -106,6 +110,22 @@ add_custom_command(TARGET EyeTrackVR-Overlay POST_BUILD
         "${PROJECT_SOURCE_DIR}/external/font/OpenSans-Regular.ttf"
         $<TARGET_FILE_DIR:EyeTrackVR-Overlay>/assets/OpenSans-Regular.ttf
 )
+
+# ── Install: the self-contained runtime folder EyeTrackVR ships ──────────────
+#   cmake --install build --config Release --prefix <folder>
+install(TARGETS EyeTrackVR-Overlay
+    RUNTIME_DEPENDENCIES
+        PRE_INCLUDE_REGEXES "openvr_api" "openxr_loader" "jsoncpp" "vulkan"
+        PRE_EXCLUDE_REGEXES ".*"
+        DIRECTORIES $<TARGET_FILE_DIR:EyeTrackVR-Overlay>
+    RUNTIME DESTINATION . LIBRARY DESTINATION .)
+install(FILES external/font/OpenSans-Regular.ttf DESTINATION assets)
+install(FILES LICENSE DESTINATION licenses RENAME overlay-MIT.txt)
+install(FILES external/OpenVR/LICENSE DESTINATION licenses RENAME OpenVR-LICENSE.txt)
+install(FILES external/font/OFL.txt DESTINATION licenses RENAME OpenSans-OFL.txt)
+foreach(pkg libopenxr-loader1 libjsoncpp25 libvulkan1 libstb-dev)
+    install(FILES /usr/share/doc/${pkg}/copyright DESTINATION licenses RENAME ${pkg}-copyright.txt OPTIONAL)
+endforeach()
 
 # ── Tests ────────────────────────────────────────────────────────────────────
 if(ETVR_BUILD_TESTS)

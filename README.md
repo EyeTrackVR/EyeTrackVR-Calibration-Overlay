@@ -165,36 +165,25 @@ Preview what a headset would show:
 EyeTrackVR-Overlay finetune --backend=sim --sim-fast --sim-hmd=beyond2 --sim-dump=frames --sim-debug
 ```
 
-### Linux runtime folder
+### Runtime folder
 
-On Ubuntu 22.04 or newer:
+Gather the executable, its loaders, the font and license notices into one
+folder that runs on its own:
 
 ```sh
-sudo apt-get install build-essential cmake ninja-build libvulkan-dev libopenxr-dev libstb-dev patchelf
-bash build-linux.sh
+cmake --install build --config Release --prefix package
 ```
 
-`build-linux/package/` then holds the executable, `.so` loaders, assets and
-license notices. Build on Ubuntu 22.04 for a glibc 2.35 baseline. The headset's
-SteamVR/OpenXR runtime and Vulkan graphics driver are required.
+On Linux (Ubuntu 24.04 or newer) install the dependencies first:
 
-## Prebuilt runtimes (`dist/`)
+```sh
+sudo apt-get install build-essential cmake ninja-build libvulkan-dev libopenxr-dev libstb-dev
+```
 
-EyeTrackVR includes this repository as its `overlay/` submodule and ships the
-runtimes committed in `dist/` as they are:
+## Releases
 
-| Folder | Platform | Built |
-| --- | --- | --- |
-| `dist/windows/` | Windows x64 | `build.bat` (vcpkg) |
-| `dist/linux/` | Linux x86_64, glibc 2.35+ | WSL Ubuntu 22.04 |
-| `dist/linux-arm64/` | Linux aarch64 (Steam Frame), glibc 2.38+ | Docker Ubuntu 24.04 arm64 |
-
-The aarch64 folder swaps in `libopenvr_api.so` from OpenVR v2.12.14: the older
-`external/OpenVR` build can't find SteamVR on a Steam Frame.
-
-To update them, commit your source changes, then on Windows run
-`build-dist.bat` (or `build-dist.bat windows|linux|arm64`; arm64 needs Docker
-Desktop) and commit `dist/`. On Linux, `bash build-dist.sh` builds the folder
-for the machine's architecture. Each folder's `SOURCE_TREE` is a hash of the
-inputs listed in `dist/SOURCE_INPUTS`; EyeTrackVR's tests fail when it doesn't
-match the sources, so binaries can't go stale unnoticed.
+EyeTrackVR downloads the overlay from this repository's releases. Pushing a
+`v*` tag makes CI publish the runtime folder of each release build in
+`.github/workflows/build.yml`. Then update the release EyeTrackVR pins in its
+`packaging/fetch_overlay.py`, which also explains how to run a local build in
+EyeTrackVR.
