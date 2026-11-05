@@ -63,3 +63,6 @@ $RECYCLE.BIN/
 __pycache__/
 *.pyc
 *.pyo
+
+# Runtime log the overlay writes next to its executable
+eyetrackvr_overlay.log
