@@ -13,6 +13,7 @@ constexpr Rgba kViolet = raster::hex(0xB58CFF);
 constexpr Rgba kInk = raster::hex(0x10121A);
 constexpr Rgba kWhite = raster::hex(0xFFFFFF);
 constexpr Rgba kRing = raster::hex(0xE6DAFF);
+constexpr Rgba kGaze = raster::hex(0x5EE6B0);
 
 Image make_dot() {
     constexpr int S = 128;
@@ -60,6 +61,17 @@ Image make_trail() {
     return img;
 }
 
+Image make_gaze() {
+    constexpr int S = 128;
+    Image img;
+    raster::alloc(img, S, S);
+    const float c = S * 0.5f, half = S * 0.5f;
+    raster::stroke_circle(img, c, c, half * kSpriteEdge, half * 0.11f, kInk);
+    raster::stroke_circle(img, c, c, half * kSpriteEdge, half * 0.06f, kGaze);
+    raster::bleed(img, kGaze);
+    return img;
+}
+
 }  // namespace
 
 const Image& dot() {
@@ -74,6 +86,11 @@ const Image& ring() {
 
 const Image& trail() {
     static const Image img = make_trail();
+    return img;
+}
+
+const Image& gaze() {
+    static const Image img = make_gaze();
     return img;
 }
 

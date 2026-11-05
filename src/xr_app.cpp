@@ -292,7 +292,9 @@ bool XrApp::create_swapchains() {
     const Image& dot = sprites::dot();
     const Image& ring = sprites::ring();
     const Image& trail = sprites::trail();
+    const Image& gaze = sprites::gaze();
     if (!make_quad((uint32_t)dot.w, (uint32_t)dot.h, dot_)) return false;
+    if (!make_quad((uint32_t)gaze.w, (uint32_t)gaze.h, gaze_)) return false;
     if (!make_quad((uint32_t)ring.w, (uint32_t)ring.h, ring_)) return false;
     if (!make_quad((uint32_t)trail.w, (uint32_t)trail.h, trail_)) return false;
     if (!make_quad(TextRenderer::kMaxWidth, TextRenderer::kMaxHeight, panel_)) return false;
@@ -581,13 +583,15 @@ bool XrApp::frame(const std::function<Frame(double, const ViewGeometry&)>& updat
         const bool ring_ok = prepare_quad(cmd, ring_, f.ring, &sprites::ring());
         const bool trail_ok = prepare_quad(cmd, trail_, f.trail, &sprites::trail());
         const bool dot_ok = prepare_quad(cmd, dot_, f.dot, &sprites::dot());
+        const bool gaze_ok = prepare_quad(cmd, gaze_, f.gaze, &sprites::gaze());
 
         const bool gpu_ok = vk_.submit_wait();
-        for (auto* sc : {&proj_sc_[0], &proj_sc_[1], &panel_.sc, &ring_.sc, &trail_.sc, &dot_.sc}) release(*sc);
+        for (auto* sc : {&proj_sc_[0], &proj_sc_[1], &panel_.sc, &ring_.sc, &trail_.sc, &dot_.sc, &gaze_.sc})
+            release(*sc);
         if (!gpu_ok) {
             // Uploads recorded this frame never happened: force them again.
             grey_level_ = -1;
-            for (auto* q : {&panel_, &ring_, &trail_, &dot_}) q->version = ~0ull;
+            for (auto* q : {&panel_, &ring_, &trail_, &dot_, &gaze_}) q->version = ~0ull;
             if (++gpu_failures_ >= 3) {
                 std::cout << "[ERROR] Repeated GPU failures; stopping the calibration\n";
                 XrFrameEndInfo fe{XR_TYPE_FRAME_END_INFO};
@@ -621,6 +625,7 @@ bool XrApp::frame(const std::function<Frame(double, const ViewGeometry&)>& updat
             if (ring_ok) layers.push_back((XrCompositionLayerBaseHeader*)&ring_.layer);
             if (trail_ok) layers.push_back((XrCompositionLayerBaseHeader*)&trail_.layer);
             if (dot_ok) layers.push_back((XrCompositionLayerBaseHeader*)&dot_.layer);
+            if (gaze_ok) layers.push_back((XrCompositionLayerBaseHeader*)&gaze_.layer);
         }
     }
 
@@ -655,7 +660,7 @@ void XrApp::shutdown() {
 
     if (vk_.device) vkDeviceWaitIdle(vk_.device);
 
-    for (auto* sc : {&dot_.sc, &ring_.sc, &trail_.sc, &panel_.sc, &proj_sc_[0], &proj_sc_[1]})
+    for (auto* sc : {&dot_.sc, &ring_.sc, &trail_.sc, &gaze_.sc, &panel_.sc, &proj_sc_[0], &proj_sc_[1]})
         if (sc->handle) {
             xrDestroySwapchain(sc->handle);
             sc->handle = XR_NULL_HANDLE;
@@ -664,6 +669,7 @@ void XrApp::shutdown() {
         dot_.tex.destroy(vk_);
         ring_.tex.destroy(vk_);
         trail_.tex.destroy(vk_);
+        gaze_.tex.destroy(vk_);
         panel_.tex.destroy(vk_);
         grey_tex_.destroy(vk_);
         vk_.destroy();

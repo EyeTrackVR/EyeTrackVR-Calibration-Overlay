@@ -7,7 +7,7 @@
 // ── Compositor-facing frame description ───────────────────────────────────────
 //
 // The Presenter's output and the only thing backends render: a backdrop plus
-// four head-locked quads, each facing the viewer. Positions/sizes are final
+// five head-locked quads, each facing the viewer. Positions/sizes are final
 // head-space metres (x right, y up, z negative forward); rot spins a quad about
 // the view axis (radians, counter-clockwise, so +x turns towards +y); alpha
 // multiplies the texture's own (straight, non-premultiplied) alpha.
@@ -29,6 +29,6 @@ struct Quad {
 struct Frame {
     uint8_t backdrop_gray = cfg::BACKDROP_GREY;
     float backdrop_alpha = 1.0f;         // 0 = scene/game fully visible
-    Quad panel, ring, trail, dot;        // composited in this order
+    Quad panel, ring, trail, dot, gaze;  // composited in this order
     const Image* panel_image = nullptr;  // owned by the Presenter; valid until next update
 };

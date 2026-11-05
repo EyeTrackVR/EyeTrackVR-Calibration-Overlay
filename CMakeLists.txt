@@ -114,7 +114,7 @@ if(ETVR_BUILD_TESTS)
     target_link_libraries(etvr_tests PRIVATE etvr_core)
     target_compile_definitions(etvr_tests PRIVATE
         ETVR_FONT="${PROJECT_SOURCE_DIR}/external/font/OpenSans-Regular.ttf")
-    foreach(suite i18n text geometry modes interactive session)
+    foreach(suite i18n text geometry modes interactive preview session)
         add_test(NAME unit.${suite} COMMAND etvr_tests ${suite})
     endforeach()
     # The layout sweep dominates the run time; shard it so `ctest -j` uses every core.

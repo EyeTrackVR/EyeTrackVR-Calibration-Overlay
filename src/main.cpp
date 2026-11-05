@@ -159,7 +159,7 @@ bool parse_int(const std::string& arg, size_t prefix, long lo, long hi, long& ou
 }
 
 void print_usage() {
-    std::cout << "EyeTrackVR-Overlay [9point|center|ellipse|datacollect|finetune|interactive]\n"
+    std::cout << "EyeTrackVR-Overlay [9point|center|ellipse|datacollect|finetune|interactive|preview]\n"
                  "    [--coverage=0.70] [--max-deg=30] [--max-deg-up=15] [--max-deg-down=40]\n"
                  "    [--center-deg=0] [--backend=auto|openvr|openxr|sim] [--runtime=keep|<path.json>]\n"
                  "  simulator: [--sim-hmd=beyond2|index|quest3|pimax|vive|canted|narrow|generic]\n"

@@ -223,7 +223,7 @@ bool OvrApp::init(const FovConfig& fov_cfg) {
     }
 
     if (!create("panel", 1, panel_) || !create("ring", 2, ring_) || !create("trail", 3, trail_) ||
-        !create("dot", 4, dot_)) {
+        !create("dot", 4, dot_) || !create("gaze", 5, gaze_)) {
         destroy_all();
         vr::VR_Shutdown();
         sys_ = nullptr;
@@ -473,13 +473,14 @@ bool OvrApp::frame(const std::function<Frame(double, const ViewGeometry&)>& upda
     apply(ring_, f.ring, &sprites::ring());
     apply(trail_, f.trail, &sprites::trail());
     apply(dot_, f.dot, &sprites::dot());
+    apply(gaze_, f.gaze, &sprites::gaze());
     return true;
 }
 
 void OvrApp::destroy_all() {
     auto* ov = vr::VROverlay();
     if (!ov) return;
-    for (Overlay* o : {&bg_[0], &bg_[1], &bg_[2], &bg_[3], &bg_[4], &panel_, &ring_, &trail_, &dot_}) {
+    for (Overlay* o : {&bg_[0], &bg_[1], &bg_[2], &bg_[3], &bg_[4], &panel_, &ring_, &trail_, &dot_, &gaze_}) {
         if (o->h != vr::k_ulOverlayHandleInvalid) ov->DestroyOverlay(o->h);
         o->h = vr::k_ulOverlayHandleInvalid;
     }

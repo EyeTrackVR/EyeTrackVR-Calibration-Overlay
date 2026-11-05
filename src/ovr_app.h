@@ -56,7 +56,7 @@ private:
 
     vr::IVRSystem* sys_ = nullptr;
     Overlay bg_[5];  // grey backdrop: front, left, right, top, bottom
-    Overlay panel_, ring_, trail_, dot_;
+    Overlay panel_, ring_, trail_, dot_, gaze_;
     uint8_t bg_gray_ = 0;
     float bg_alpha_ = -1.0f;
     bool bg_shown_ = false;

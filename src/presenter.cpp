@@ -20,6 +20,9 @@ constexpr float kPanelOut = 0.12f;
 constexpr float kPredictS = 0.35f;    // look-ahead for continuously moving targets
 constexpr float kTrailS = 0.28f;      // how far back in time the trail reaches
 constexpr float kTrailAlpha = 0.55f;  // trail opacity at its head (under the dot)
+constexpr float kGazeIn = 0.10f;
+constexpr float kGazeOut = 0.20f;
+constexpr float kGazeSize = 0.12f;  // cursor quad width (m); its ring encloses the dot
 
 // Layout.
 constexpr float kPanelMargin = 0.07f;  // clearance card ↔ target edge (≈1.3° at 3 m)
@@ -53,7 +56,9 @@ Presenter::Presenter(TextRenderer* text) : text_(text) {}
 
 void Presenter::begin_outro() { outro_ = true; }
 
-bool Presenter::outro_done() const { return outro_ && backdrop_ <= 0.0f && dot_vis_ <= 0.0f && panel_t_ <= 0.0f; }
+bool Presenter::outro_done() const {
+    return outro_ && backdrop_ <= 0.0f && dot_vis_ <= 0.0f && gaze_vis_ <= 0.0f && panel_t_ <= 0.0f;
+}
 
 Frame Presenter::update(const Scene& s, double dt_in, const ViewGeometry& g) {
     const float dt = (float)std::clamp(dt_in, 0.0, 0.25);
@@ -64,6 +69,7 @@ Frame Presenter::update(const Scene& s, double dt_in, const ViewGeometry& g) {
     f.backdrop_alpha = ease_in_out(backdrop_);
 
     update_target(s, dt);
+    update_gaze(s, dt);
     update_panel(s, dt, g);
 
     if (dot_vis_ > 0.001f) {
@@ -76,6 +82,11 @@ Frame Presenter::update(const Scene& s, double dt_in, const ViewGeometry& g) {
     if (ring_alpha_ > 0.002f) {
         const float k = cfg::RING_DIST / cfg::OVERLAY_DIST;
         f.ring = {true, ring_x_ * k, ring_y_ * k, -cfg::RING_DIST, ring_size_ * k, ring_size_ * k, ring_alpha_};
+    }
+    const float gaze_a = ease_out_cubic(gaze_vis_) * gaze_alpha_;
+    if (gaze_a > 0.002f) {
+        const float k = cfg::GAZE_DIST / cfg::OVERLAY_DIST;
+        f.gaze = {true, gaze_x_ * k, gaze_y_ * k, -cfg::GAZE_DIST, kGazeSize * k, kGazeSize * k, gaze_a};
     }
     if (panel_alpha_out_ > 0.002f && have_img_) {
         const float k = cfg::TEXT_DIST / cfg::OVERLAY_DIST;
@@ -133,6 +144,18 @@ void Presenter::update_target(const Scene& s, float dt) {
     // Fade the ring as it closes on the dot, so only the dot remains at capture.
     const float conv = dot_size_ > 0.0f ? raster::smoothstep(0.05f, 0.8f, (ring_size_ - dot_size_) / dot_size_) : 0.0f;
     ring_alpha_ = ring_in_ * conv * ease_out_cubic(dot_vis_);
+}
+
+// The cursor follows the reported gaze directly (the app already filters it)
+// and only fades in and out, so it never lags behind the eye.
+void Presenter::update_gaze(const Scene& s, float dt) {
+    const bool want = s.gaze_visible && !outro_;
+    if (want) {
+        gaze_x_ = s.gaze_x;
+        gaze_y_ = s.gaze_y;
+        gaze_alpha_ = raster::clamp01(s.gaze_alpha);
+    }
+    gaze_vis_ = ramp(gaze_vis_, want, dt, kGazeIn, kGazeOut);
 }
 
 // The trail is a comet streak from where the dot was kTrailS ago to where it is

@@ -22,6 +22,9 @@ inline constexpr float OVERLAY_DIST = 3.0f;  // |z| of the overlay plane (m)
 // non-target surfaces are offset, and their x/y are scaled so they keep the
 // same angular position.
 inline constexpr float RING_DIST = OVERLAY_DIST + 0.004f;
+// The live gaze cursor (preview mode) sits just in front of the target, so the
+// reference dot shows through its hollow centre.
+inline constexpr float GAZE_DIST = OVERLAY_DIST - 0.004f;
 inline constexpr float TRAIL_DIST = OVERLAY_DIST + 0.002f;
 inline constexpr float TEXT_DIST = OVERLAY_DIST + 0.015f;
 inline constexpr float BACKDROP_DIST = OVERLAY_DIST + 0.030f;

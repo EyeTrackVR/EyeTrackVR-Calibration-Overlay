@@ -1,5 +1,5 @@
 // Unit tests for the VR-independent core: geometry/visibility, mode timing and
-// UDP protocol, interactive command handling, presenter layout invariants
+// UDP protocol, interactive and preview command handling, presenter layout invariants
 // (the instruction panel never covers a target), text rendering and the
 // session lifecycle. Runs headless; no VR runtime or hardware needed.
 
@@ -21,6 +21,7 @@
 #include <cstring>
 #include <deque>
 #include <functional>
+#include <initializer_list>
 #include <limits>
 #include <random>
 #include <string>
@@ -85,6 +86,16 @@ struct FakeNet : UdpNet {
         std::memcpy(&yi, &y, 4);
         be(v, xi);
         be(v, yi);
+        inbox.push_back(v);
+    }
+    void cmd_floats(int32_t c, std::initializer_list<float> fs) {
+        std::vector<unsigned char> v;
+        be(v, (uint32_t)c);
+        for (float f : fs) {
+            uint32_t bits;
+            std::memcpy(&bits, &f, 4);
+            be(v, bits);
+        }
         inbox.push_back(v);
     }
     void text(const std::string& s) {
@@ -577,6 +588,12 @@ static void layout_run(const std::string& mode_name, const ViewGeometry& vg, Tex
 
     Scene s = mode->update(0.0, net, vg.gaze);
     while (t < 400.0 && !mode->finished()) {
+        if (mode_name == "preview") {
+            // The app's preview: instruction text, then gaze on the reference dot.
+            if (t == 0.0) net.text("Gaze preview\nThe green ring shows where you are looking");
+            net.cmd_floats(140, {s.dot_x / cfg::OVERLAY_DIST, s.dot_y / cfg::OVERLAY_DIST, 1.0f});
+            if (t >= 16.0) net.cmd(200);
+        }
         if (mode_name == "interactive" && t >= wait_until) {
             switch (step) {
                 case 0:
@@ -711,7 +728,7 @@ static void test_layout(int shard, int shards) {
     for (const auto& hmd : sim_hmd_names()) {
         for (const auto& c : configs()) {
             const ViewGeometry vg = geometry(hmd, c.f);
-            for (const char* m : {"finetune", "datacollect", "ellipse", "interactive", "9point", "center"}) {
+            for (const char* m : {"finetune", "datacollect", "ellipse", "interactive", "9point", "center", "preview"}) {
                 if (index++ % shards != shard) continue;
                 LayoutStats st;
                 const std::string tag = hmd + "/" + c.name + "/" + m;
@@ -730,7 +747,9 @@ static void test_layout(int shard, int shards) {
                 CHECKM(st.trail_too_wide == 0, "%s: trail wider than the dot on %d frames", tag.c_str(),
                        st.trail_too_wide);
                 CHECKM(st.trail_jump == 0, "%s: trail drawn across a jump on %d frames", tag.c_str(), st.trail_jump);
-                const bool moves = std::string(m) != "9point" && std::string(m) != "center";
+                // The preview's reference dot jumps between positions instead of gliding.
+                const bool moves =
+                    std::string(m) != "9point" && std::string(m) != "center" && std::string(m) != "preview";
                 CHECKM(moves == (st.trail_frames > 0), "%s: trail shown on %d frames", tag.c_str(), st.trail_frames);
                 if (st.text_frames > 200)
                     CHECKM(st.panel_frames > st.text_frames / 2, "%s: panel shown only %d of %d text frames",
@@ -738,6 +757,91 @@ static void test_layout(int shard, int shards) {
             }
         }
     }
+}
+
+// ── Preview mode and gaze cursor ─────────────────────────────────────────────
+
+static void test_preview(const GazeRange& g) {
+    std::printf("preview\n");
+    FakeNet net;
+    auto mode = make_mode("preview");
+    mode->on_start(net);
+    CHECK(net.values() == std::vector<int32_t>{255});
+    const double dt = 1.0 / 90;
+    auto step = [&](double secs) {
+        Scene s;
+        for (int i = 0; i * dt < secs - 1e-9; ++i) s = mode->update(dt, net, g);
+        return s;
+    };
+
+    // Before any sample: reference dot at the centre, no cursor.
+    Scene s = step(0.1);
+    CHECK(s.dot_visible && std::fabs(s.dot_x - g.x(0.0f)) < 1e-4f && std::fabs(s.dot_y - g.y(0.0f)) < 1e-4f);
+    CHECK(!s.gaze_visible);
+
+    // A sample places the cursor at its true angle, faded by openness.
+    net.cmd_floats(140, {0.2f, -0.1f, 0.8f});
+    s = step(dt);
+    CHECK(s.gaze_visible);
+    CHECK(std::fabs(s.gaze_x - 0.2f * cfg::OVERLAY_DIST) < 1e-5f);
+    CHECK(std::fabs(s.gaze_y + 0.1f * cfg::OVERLAY_DIST) < 1e-5f);
+    CHECK(std::fabs(s.gaze_alpha - 0.8f) < 1e-6f);
+
+    // Without openness the cursor is fully opaque; out-of-range values clamp.
+    net.cmd_floats(140, {0.1f, 0.1f});
+    s = step(dt);
+    CHECK(s.gaze_visible && s.gaze_alpha == 1.0f);
+    net.cmd_floats(140, {0.1f, 0.1f, 7.0f});
+    s = step(dt);
+    CHECK(s.gaze_alpha == 1.0f);
+
+    // Non-finite or implausible gaze is ignored.
+    net.cmd_floats(140, {std::numeric_limits<float>::quiet_NaN(), 0.0f, 1.0f});
+    net.cmd_floats(140, {5.0f, 0.0f, 1.0f});
+    s = step(dt);
+    CHECK(std::fabs(s.gaze_x - 0.1f * cfg::OVERLAY_DIST) < 1e-5f);
+
+    // A stale cursor hides.
+    s = step(0.35);  // longer than the 0.3 s staleness limit
+    CHECK(!s.gaze_visible);
+
+    // The reference dot moves on, as a jump rather than a glide.
+    bool cut = false;
+    for (int i = 0; i * dt < 3.0; ++i) cut |= mode->update(dt, net, g).dot_cut;
+    s = mode->update(dt, net, g);
+    CHECK(cut);
+    CHECK(std::fabs(s.dot_x - g.x(0.6f)) < 1e-4f);
+
+    // Text and quit, as in interactive mode.
+    net.text("Look at the dot");
+    s = step(dt);
+    CHECK(s.text_visible && s.text == "Look at the dot");
+    net.cmd(98);
+    s = step(dt);
+    CHECK(!s.text_visible);
+    CHECK(!mode->finished());
+    net.cmd(200);
+    step(dt);
+    CHECK(mode->finished());
+
+    // The presenter draws the cursor in front of the target and fades it out
+    // with everything else.
+    Presenter pr(nullptr);
+    const ViewGeometry vg = geometry("quest3", FovConfig{});
+    Scene sc;
+    sc.gaze_visible = true;
+    sc.gaze_x = 0.3f;
+    sc.gaze_y = -0.2f;
+    sc.gaze_alpha = 0.5f;
+    Frame f;
+    for (int i = 0; i < 30; ++i) f = pr.update(sc, dt, vg);
+    const float k = cfg::GAZE_DIST / cfg::OVERLAY_DIST;
+    CHECK(f.gaze.visible && std::fabs(f.gaze.alpha - 0.5f) < 1e-4f);
+    CHECK(std::fabs(f.gaze.x - 0.3f * k) < 1e-5f && std::fabs(f.gaze.y + 0.2f * k) < 1e-5f);
+    CHECK(f.gaze.z > -cfg::OVERLAY_DIST);
+    pr.begin_outro();
+    for (int i = 0; i < 90; ++i) f = pr.update(sc, dt, vg);
+    CHECK(!f.gaze.visible && pr.outro_done());
 }
 
 // ── Session lifecycle ─────────────────────────────────────────────────────────
@@ -851,6 +955,7 @@ int main(int argc, char** argv) {
     if (want("geometry")) test_geometry();
     if (want("modes")) test_modes(g);
     if (want("interactive")) test_interactive(g);
+    if (want("preview")) test_preview(g);
     if (want("layout")) test_layout(shard, shards);
     if (want("session")) test_session();
     if (!ran) {

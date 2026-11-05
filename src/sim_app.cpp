@@ -167,6 +167,7 @@ void SimApp::render(const Frame& f, const ViewGeometry& g, int eye_px, bool debu
                 composite(c, f.ring, &sprites::ring(), o, d);
                 composite(c, f.trail, &sprites::trail(), o, d);
                 composite(c, f.dot, &sprites::dot(), o, d);
+                composite(c, f.gaze, &sprites::gaze(), o, d);
 
                 if (debug && std::fabs(d.z) > 1e-6f) {
                     const float t = (-cfg::OVERLAY_DIST - o.z) / d.z;
