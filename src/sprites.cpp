@@ -8,12 +8,13 @@ namespace {
 
 using raster::Rgba;
 
-// Flat palette shared with the instruction panel (text.cpp kAccent / card).
-constexpr Rgba kViolet = raster::hex(0xB58CFF);
-constexpr Rgba kInk = raster::hex(0x10121A);
+// Flat palette shared with the instruction panel (text.cpp kAccent / card):
+// EyeTrackVR's dark theme, accent #b5a0ee on ink #18171c.
+constexpr Rgba kViolet = raster::hex(0xB5A0EE);
+constexpr Rgba kInk = raster::hex(0x18171C);
 constexpr Rgba kWhite = raster::hex(0xFFFFFF);
-constexpr Rgba kRing = raster::hex(0xE6DAFF);
-constexpr Rgba kGaze = raster::hex(0x5EE6B0);
+constexpr Rgba kRing = raster::hex(0xDCD2FA);
+constexpr Rgba kGaze = raster::hex(0x8AE0A0);
 
 Image make_dot() {
     constexpr int S = 128;

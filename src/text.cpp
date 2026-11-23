@@ -22,7 +22,7 @@ constexpr float kSubLine = 1.30f;
 constexpr float kPadX = 44.0f;
 constexpr float kPadY = 28.0f;
 constexpr float kTitleGap = 4.0f;  // title block → subtitle block
-constexpr float kRadius = 24.0f;
+constexpr float kRadius = 20.0f;
 constexpr float kMinBodyW = 320.0f;
 constexpr int kMaxTitleLines = 2;
 constexpr int kMaxSubLines = 3;
@@ -33,15 +33,18 @@ constexpr float kBarH = 7.0f;
 constexpr float kBarMinW = 260.0f;
 constexpr int kMaxPips = 24;
 
-constexpr Rgba kCardTop = raster::hex(0x1C1F2B, 0.92f);
-constexpr Rgba kCardBottom = raster::hex(0x10121A, 0.92f);
-constexpr Rgba kBorder = raster::hex(0xFFFFFF, 0.10f);
-constexpr Rgba kTitle = raster::hex(0xFFFFFF);
-constexpr Rgba kTitleOk = raster::hex(0x8DF0B8);
-constexpr Rgba kSub = raster::hex(0xC4C8D6);
-constexpr Rgba kAccent = raster::hex(0xB58CFF);
-constexpr Rgba kAccentOk = raster::hex(0x6BE3A0);
-constexpr Rgba kTrack = raster::hex(0xFFFFFF, 0.16f);
+// EyeTrackVR's dark theme (the app's sv_ttk palette, EyeTrackApp/ui_theme.py):
+// surfaces #211f27 on #18171c, border #3d3a47, text #ebe9f0, accent #b5a0ee.
+// The success green is the app's own (its eyelid tuning "wide-eye" colour).
+constexpr Rgba kCard = raster::hex(0x211F27, 0.96f);  // flat, like the app's cards
+constexpr Rgba kBorder = raster::hex(0x3D3A47, 0.95f);
+constexpr Rgba kTitle = raster::hex(0xEBE9F0);
+constexpr Rgba kTitleOk = raster::hex(0xA8EBBE);
+constexpr Rgba kSub = raster::hex(0xBDBAC6);  // the app's muted text, lifted a little for VR
+constexpr Rgba kAccent = raster::hex(0xB5A0EE);
+constexpr Rgba kAccentOk = raster::hex(0x8AE0A0);
+constexpr Rgba kTrack = raster::hex(0x3D3A47);
+constexpr Rgba kNext = raster::hex(0xB5A0EE, 0.95f);  // outline of the next pip
 
 struct Font {
     std::string path;
@@ -335,19 +338,19 @@ void TextRenderer::render_panel(const PanelContent& content, int max_body_px, Im
     const float bw = (float)W - 2.0f * kShadowPad, bh = (float)H - 2.0f * kShadowPad;
     const float ccx = bx + bw * 0.5f, ccy = by + bh * 0.5f;
 
-    // Card: soft drop shadow, vertical gradient body, hairline border.
+    // Card: flat body and hairline border, like the app's cards, on a light shadow
+    // that lifts it off the backdrop.
     for (int y = 0; y < H; ++y)
         for (int x = 0; x < W; ++x) {
             const float px = x + 0.5f, py = y + 0.5f;
             uint8_t* dst = &out.rgba[((size_t)y * W + x) * 4];
             const float ds = raster::sd_round_rect(px, py - 5.0f, ccx, ccy, bw * 0.5f, bh * 0.5f, kRadius);
-            const float sa = 0.38f * (1.0f - raster::smoothstep(-6.0f, (float)kShadowPad - 2.0f, ds));
+            const float sa = 0.22f * (1.0f - raster::smoothstep(-6.0f, (float)kShadowPad - 2.0f, ds));
             if (sa > 0.0f) raster::blend(dst, raster::hex(0x000000), sa);
             const float d = raster::sd_round_rect(px, py, ccx, ccy, bw * 0.5f, bh * 0.5f, kRadius);
             const float cov = raster::coverage(d);
             if (cov > 0.0f) {
-                const float t = raster::clamp01((py - by) / bh);
-                raster::blend(dst, raster::mix(kCardTop, kCardBottom, t), cov);
+                raster::blend(dst, kCard, cov);
                 const float edge = raster::coverage(std::fabs(d + 1.0f) - 0.75f);
                 if (edge > 0.0f) raster::blend(dst, kBorder, edge * cov);
             }
@@ -390,7 +393,7 @@ void TextRenderer::render_panel(const PanelContent& content, int max_body_px, Im
                     raster::fill_disc(out, cx, cy, kPipR, accent);
                 } else if (i == content.pips_done) {
                     raster::fill_disc(out, cx, cy, kPipR, kTrack);
-                    raster::stroke_circle(out, cx, cy, kPipR - 1.0f, 1.1f, raster::hex(0xFFFFFF, 0.85f));
+                    raster::stroke_circle(out, cx, cy, kPipR - 1.0f, 1.4f, kNext);
                 } else {
                     raster::fill_disc(out, cx, cy, kPipR * 0.72f, kTrack);
                 }
