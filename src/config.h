@@ -9,7 +9,7 @@
 
 namespace cfg {
 
-inline constexpr const char* VERSION = "0.4.0";
+inline constexpr const char* VERSION = "0.5.0";
 
 // Distance from the HMD to the overlay plane. Increasing this reduces eye
 // convergence (more relaxed gaze).
